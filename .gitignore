@@ -1,0 +1,11 @@
+# binário nenhum se versiona. Padrão largo de propósito: a lista por nome
+# deixou passar um ponte-whatsapp.exe de 26 MB quando o módulo foi renomeado.
+*.exe
+whatsapp-reader
+whatsapp-reader-*
+
+# os dados e as chaves de sessão NUNCA entram aqui
+*.db
+*.db-wal
+*.db-shm
+qr.png
