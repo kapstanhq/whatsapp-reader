@@ -70,12 +70,12 @@ func Mcp(dir string) error {
 		if len(r.ID) == 0 {
 			continue
 		}
-		res, erro := despachar(ctx, banco, r)
+		res, erro := despachar(ctx, banco, dir, r)
 		enc.Encode(respRPC{JSONRPC: "2.0", ID: r.ID, Result: res, Error: erro})
 	}
 }
 
-func despachar(ctx context.Context, b *Banco, r reqRPC) (any, *errRPC) {
+func despachar(ctx context.Context, b *Banco, dir string, r reqRPC) (any, *errRPC) {
 	switch r.Method {
 
 	case "initialize":
@@ -108,7 +108,7 @@ func despachar(ctx context.Context, b *Banco, r reqRPC) (any, *errRPC) {
 		if err := json.Unmarshal(r.Params, &p); err != nil {
 			return nil, &errRPC{Code: -32602, Message: "parâmetros inválidos"}
 		}
-		texto, err := executar(ctx, b, p.Name, p.Arguments)
+		texto, err := executar(ctx, b, dir, p.Name, p.Arguments)
 		if err != nil {
 			// Falha de execução volta como resultado com isError, não como erro
 			// de protocolo: o agente precisa LER o motivo para se corrigir.
@@ -143,7 +143,13 @@ func catalogo() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object", "properties": props, "required": obrig,
 			},
+			// Vale para as quatro de leitura; as duas de envio sobrescrevem.
+			"annotations": map[string]any{"readOnlyHint": true},
 		}
+	}
+	anotar := func(t, a map[string]any) map[string]any {
+		t["annotations"] = a
+		return t
 	}
 	return []map[string]any{
 		tool("listar_conversas",
@@ -168,19 +174,46 @@ func catalogo() []map[string]any {
 			map[string]any{"conversa": str("o jid da conversa")},
 			[]string{"conversa"}),
 
+		anotar(tool("preparar_envio",
+			"Monta a PRÉVIA de uma mensagem: para quem vai e com que texto. NÃO envia nada — devolve um código. "+
+				"MOSTRE a prévia inteira ao corretor (nome do destinatário e texto) e espere ELE dizer que pode. "+
+				"Só então chame enviar_mensagem, repetindo código, conversa e texto.",
+			map[string]any{
+				"conversa": str("o jid de UMA conversa, como veio de listar_conversas. Uma só: não existe envio para lista"),
+				"texto":    str("a mensagem exata, já escrita como o corretor a mandaria"),
+			},
+			[]string{"conversa", "texto"}),
+			map[string]any{"readOnlyHint": false, "destructiveHint": false,
+				"title": "Preparar mensagem (não envia)"}),
+
+		anotar(tool("enviar_mensagem",
+			"ENVIA a mensagem que preparar_envio mostrou. Exige o código da prévia e a repetição EXATA da conversa e do "+
+				"texto — mudou qualquer coisa depois da prévia, é recusado. Uma conversa por chamada. "+
+				"Chame só depois que o corretor tiver lido a prévia e autorizado.",
+			map[string]any{
+				"previa":   str("o código devolvido por preparar_envio"),
+				"conversa": str("o mesmo jid da prévia"),
+				"texto":    str("o mesmo texto da prévia, caractere por caractere"),
+			},
+			[]string{"previa", "conversa", "texto"}),
+			map[string]any{"readOnlyHint": false, "destructiveHint": true, "openWorldHint": true,
+				"title": "Enviar a mensagem no WhatsApp"}),
+
 		tool("estado_da_ponte",
 			"Quanto a ponte tem guardado e até quando. Use antes de afirmar que algo não existe.",
 			map[string]any{}, nil),
 	}
 }
 
-func executar(ctx context.Context, b *Banco, nome string, args json.RawMessage) (string, error) {
+func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMessage) (string, error) {
 	var a struct {
 		Busca    string `json:"busca"`
 		Conversa string `json:"conversa"`
 		Depois   string `json:"depois"`
 		Antes    string `json:"antes"`
 		Limite   int    `json:"limite"`
+		Texto    string `json:"texto"`
+		Previa   string `json:"previa"`
 	}
 	if len(args) > 0 {
 		json.Unmarshal(args, &a)
@@ -263,6 +296,44 @@ func executar(ctx context.Context, b *Banco, nome string, args json.RawMessage) 
 		return fmt.Sprintf("última em %s · há %d dias · %s\ntexto: %s",
 			em.Format("2006-01-02 15:04"), dias, ultima, texto), nil
 
+	case "preparar_envio":
+		elo, err := AbrirEloCliente(dir)
+		if err != nil {
+			return "", err
+		}
+		res, err := elo.pedir(ctx, "/preparar", map[string]string{
+			"conversa": a.Conversa, "texto": a.Texto})
+		if err != nil {
+			return "", err
+		}
+		nome := campo(res, "nome")
+		if nome == "" {
+			nome = campo(res, "conversa")
+		}
+		// Este bloco é para ser MOSTRADO inteiro. Se o agente o resumir, quem
+		// autoriza não viu o que autoriza — e é essa a única coisa que a
+		// prévia serve para garantir.
+		return fmt.Sprintf(
+			"PRÉVIA %s · NADA FOI ENVIADO AINDA\n\npara: %s (%s)\ntexto:\n%s\n\n"+
+				"Mostre isto ao corretor, com o nome e o texto inteiros, e espere ELE autorizar.\n"+
+				"Depois: enviar_mensagem com previa=%s, a mesma conversa e o mesmo texto.\n"+
+				"A prévia vale 10 minutos e serve uma vez só.",
+			campo(res, "previa"), nome, campo(res, "conversa"), campo(res, "texto"),
+			campo(res, "previa")), nil
+
+	case "enviar_mensagem":
+		elo, err := AbrirEloCliente(dir)
+		if err != nil {
+			return "", err
+		}
+		res, err := elo.pedir(ctx, "/enviar", map[string]string{
+			"previa": a.Previa, "conversa": a.Conversa, "texto": a.Texto})
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("enviada para %s (%s) · id %s",
+			campo(res, "para"), campo(res, "conversa"), campo(res, "id")), nil
+
 	case "estado_da_ponte":
 		c, m := b.Contagem(ctx)
 		periodo := "sem mensagens"
@@ -270,7 +341,13 @@ func executar(ctx context.Context, b *Banco, nome string, args json.RawMessage) 
 		if err == nil && len(ms) > 0 {
 			periodo = "a mais recente é de " + ms[0].Em.Format("2006-01-02 15:04")
 		}
-		return fmt.Sprintf("%d conversas, %d mensagens · %s", c, m, periodo), nil
+		total, distintos, _, ultimo, _ := b.EnviosNaJanela(ctx, time.Now().Add(-time.Hour), "")
+		envios := fmt.Sprintf("nesta hora saíram %d mensagens pela ponte, para %d conversas (teto: %d)",
+			total, distintos, distintosHora)
+		if !ultimo.IsZero() {
+			envios += " · a última às " + ultimo.Format("15:04")
+		}
+		return fmt.Sprintf("%d conversas, %d mensagens · %s\n%s", c, m, periodo, envios), nil
 	}
 	return "", fmt.Errorf("tool desconhecida: %s", nome)
 }
@@ -286,4 +363,11 @@ func parseData(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("data não reconhecida: %q (use AAAA-MM-DD)", s)
+}
+
+// O elo devolve JSON solto. Isto evita um %v imprimindo <nil> no meio do texto
+// que o corretor vai ler.
+func campo(m map[string]any, k string) string {
+	s, _ := m[k].(string)
+	return s
 }

@@ -1,21 +1,29 @@
 # whatsapp-reader
 
-**Lê as suas conversas do WhatsApp e as entrega a um agente por MCP. Não envia mensagem.**
+**Lê as suas conversas do WhatsApp e as entrega a um agente por MCP. Manda uma
+mensagem por vez, e só depois de você ver o texto e para quem vai.**
 
-> *Read-only WhatsApp bridge exposing MCP tools. It never sends messages —
-> sending is refused by design, not missing by accident. Written for a
-> Portuguese-language plugin; docs below are in Portuguese.*
+> *WhatsApp bridge exposing MCP tools. Reading is unrestricted; sending is one
+> message at a time, gated on a preview the operator must be shown first. Bulk
+> messaging is not a missing feature — it is refused by design and cannot be
+> expressed by the API. Written for a Portuguese-language plugin; docs below are
+> in Portuguese.*
 
 ---
 
 ## Não procure aqui o que ele não faz
 
-Se você chegou querendo **disparar mensagem, automatizar atendimento ou
-responder cliente sozinho**, este não é o projeto — e não é falta de tempo de
-implementar. Enviar em massa é o que faz uma conta de WhatsApp ser bloqueada, e
-quem usa isto atende do número pessoal, onde estão os clientes dele.
+Se você chegou querendo **disparar mensagem, automatizar atendimento ou responder
+cliente sozinho**, este não é o projeto — e não é falta de tempo de implementar.
 
-O que sai daqui é texto para uma pessoa ler, copiar e enviar com o próprio dedo.
+Enviar em massa é o que faz uma conta de WhatsApp ser bloqueada, e quem usa isto
+atende do número pessoal, onde estão os clientes dele. Então o disparo não é
+desencorajado: **ele não tem como ser expresso.** `enviar_mensagem` aceita **uma**
+conversa — não uma lista —, exige o código de uma prévia que foi mostrada antes, e
+recusa grupo, canal e lista de transmissão pelo tipo do destinatário.
+
+O que sai daqui é sempre texto de uma pessoa para outra, com o nome de quem
+recebe na tela antes de sair.
 
 ## Para que existe
 
@@ -36,11 +44,45 @@ protocolo do WhatsApp:
 banco.go     esquema SQLite e as consultas
 servir.go    o daemon: conecta, pareia, captura histórico e mensagens
 mcp.go       o protocolo MCP, JSON-RPC sobre stdio, escrito à mão
+ponte.go     o elo entre os dois processos, e as travas do envio
+envios.go    a tabela de envios: o que saiu, o que foi recusado, e por quê
+cuidados.go  a lista de não contatar, a prévia que envelhece, a digitação
 main.go      os dois subcomandos
 ```
 
 O MCP é escrito à mão porque são quatro métodos — `initialize`, `ping`,
 `tools/list`, `tools/call`. Um SDK custaria mais que o protocolo inteiro.
+
+### Por que o envio precisa de dois processos falando
+
+O `serve` é quem tem a conexão viva; o `mcp` é curto, só lê o banco e morre com o
+agente. Para o `mcp` mandar enviar, ele **pede** ao daemon, por HTTP em
+`127.0.0.1`, com porta sorteada pelo sistema e um segredo por sessão gravado em
+`elo.json`.
+
+Não se abre um segundo cliente sobre o mesmo `sessao.db`: o estado do ratchet do
+Signal é de **um** dispositivo, e dois clientes sobre ele corrompem a sessão — o
+pareamento cai e o histórico não volta.
+
+### O que o envio recusa
+
+```
+mais de uma conversa por chamada     não existe como forma: é string, não lista
+grupo, canal, lista de transmissão   recusados pelo TIPO do destinatário
+texto ou destino diferentes da prévia    o que sai é o que foi mostrado
+prévia vencida, usada duas vezes,
+  ou com mensagem nova por cima      o cliente escreveu enquanto ela esperava
+quem está em nao-contatar.txt        uma linha por pessoa, no diretório da ponte
+acima do teto da hora                6 conversas distintas, 30 envios, 5 s entre
+```
+
+Os tetos são o formato certo com valor de partida arbitrário — a recusa diz o
+número e onde mudá-lo. Toda recusa vira linha na tabela `envios`: sem isso a
+trava é invisível para quem quiser auditá-la.
+
+E antes de cada envio a ponte manda o indicador de digitação. Não é enfeite: a
+Meta nomeia a **ausência** dele como sinal de robô, no white paper *Stopping
+Abuse*.
 
 ## Compilar
 

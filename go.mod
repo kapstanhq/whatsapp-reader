@@ -6,6 +6,7 @@ require (
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	go.mau.fi/whatsmeow v0.0.0-20260821141805-33cfac511629
+	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.57.0
 )
 
@@ -32,7 +33,6 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

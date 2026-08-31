@@ -46,7 +46,8 @@ func main() {
   serve    mantém a conexão viva e grava o que chega
   mcp      serve as tools para o agente (lê o banco)
 
-  Ele LÊ. Não envia mensagem nenhuma.
+  Ele LÊ sempre, e manda UMA por vez — com você vendo o texto e para quem
+  vai, antes de sair. Disparo em massa não existe aqui: não há como pedir.
 
   os dados ficam em ` + dir + `
   outro lugar: variável WHATSAPP_READER_DIR`)

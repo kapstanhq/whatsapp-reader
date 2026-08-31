@@ -98,6 +98,12 @@ func Servir(dir string) error {
 		return fmt.Errorf("conectar: %w", err)
 	}
 
+	elo, err := AbrirElo(dir, cli, banco)
+	if err != nil {
+		return fmt.Errorf("elo: %w", err)
+	}
+	defer elo.Fechar()
+
 	c, m := banco.Contagem(ctx)
 	fmt.Printf("· ponte de pé · %d conversas, %d mensagens · %s\n", c, m, dir)
 	fmt.Println("· deixe esta janela aberta. Ctrl+C encerra.")
