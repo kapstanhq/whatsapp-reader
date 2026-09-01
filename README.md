@@ -132,10 +132,25 @@ claude mcp add whatsapp -- /caminho/para/whatsapp-reader mcp
 | `listar_mensagens` | mensagens por conversa, por período ou por texto |
 | `ultima_interacao` | quando foi a última mensagem, de quem, e há quantos dias |
 | `estado_da_ponte` | quanto está guardado e até quando |
+| `preparar_envio` | MOSTRA a mensagem antes de ela sair: para quem, o nome, o texto |
+| `enviar_mensagem` | envia o que a prévia mostrou — uma por vez, nunca em lote |
 
 `ultima_interacao` existe porque uma das skills precisa saber há quantos dias
 um cliente sumiu e de quem foi a última palavra. As tools servem as skills, e
 não o contrário.
+
+As duas últimas são um PAR, e a separação é o mecanismo: `preparar_envio` não
+manda nada — devolve um código, o destinatário por nome (ou o telefone
+formatado, quando não está na agenda), o texto exato e um aviso quando a pessoa
+nunca respondeu. `enviar_mensagem` exige esse código e a REPETIÇÃO exata da
+conversa e do texto; qualquer divergência recusa. A prévia vale 10 minutos,
+serve uma vez só, e morre se o cliente escrever no meio-tempo — o texto foi
+escrito para a conversa como ela estava.
+
+O que a ponte recusa, e é ERRO, não tutela: grupo, lista de transmissão e canal
+(só pessoa); quem está no `nao-contatar.txt`; e a mesma mensagem para a mesma
+pessoa dentro de um minuto, que é dedo duplo e não decisão. Passado o minuto a
+prévia AVISA que já saiu, e quem decide é quem está na frente da tela.
 
 ## Os dados
 
