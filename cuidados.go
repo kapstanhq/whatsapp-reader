@@ -178,3 +178,72 @@ func telefoneBR(n string) string {
 	corte := len(resto) - 4
 	return fmt.Sprintf("+55 %s %s-%s", ddd, resto[:corte], resto[corte:])
 }
+
+// -- 5 · quem nunca escreveu -----------------------------------------------
+
+/* A fronteira de risco do D197, e ela não é gradual: responder quem te
+   escreveu é o caso mais seguro que existe; abrir conversa com quem nunca
+   respondeu é o exemplo de zona cinzenta do próprio white paper da Meta, e a
+   denúncia ali é a de peso máximo.
+
+   A ponte NÃO impede — é decisão do corretor, e ele pode ter o número porque a
+   pessoa deu na feira de imóveis. Ela informa, uma vez, na prévia. */
+
+func (b *Banco) JaEscreveu(ctx context.Context, conversa string) (bool, time.Time) {
+	var em int64
+	b.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(em), 0) FROM mensagens
+		WHERE conversa = ? AND de_mim = 0`, conversa).Scan(&em)
+	if em == 0 {
+		return false, time.Time{}
+	}
+	return true, time.Unix(em, 0)
+}
+
+func avisoDeRisco(jaEscreveu bool, quando time.Time) string {
+	if !jaEscreveu {
+		return "ATENÇÃO · esta pessoa NUNCA escreveu para você por aqui. Abrir conversa " +
+			"com quem nunca respondeu é o que faz uma conta ser restringida, e a restrição " +
+			"desliga esta ponte. Diga isso ao corretor antes de ele autorizar."
+	}
+	dias := int(time.Since(quando).Hours() / 24)
+	switch {
+	case dias == 0:
+		return "ela escreveu hoje · é o caso mais seguro que existe"
+	case dias == 1:
+		return "ela escreveu ontem"
+	case dias < 30:
+		return fmt.Sprintf("ela escreveu há %d dias", dias)
+	}
+	return fmt.Sprintf("ela escreveu pela última vez há %d dias, em %s — faz tempo, "+
+		"e a mensagem vai chegar como quem reabre assunto", dias, quando.Format("02/01/2006"))
+}
+
+// -- 6 · a mesma mensagem duas vezes ---------------------------------------
+
+/* Aconteceu na primeira semana de uso, e não por burla: um script rodou duas
+   vezes e a mesma mensagem saiu com 26 segundos de intervalo. As travas de
+   lote não pegam — é UMA conversa, e responder de novo a quem já se atendeu
+   na hora é conversa, não lote.
+
+   A divisão é a do D197: erro se recusa, escolha se avisa.
+
+   Ninguém ESCOLHE mandar o mesmo texto para a mesma pessoa em menos de um
+   minuto — isso é dedo duplo, ou um retry de quem achou que a primeira
+   falhou. Passou de um minuto, vira decisão legítima ("ela não viu, manda de
+   novo"), e aí a prévia diz que já saiu e quem decide é o corretor. */
+
+const janelaDedoDuplo = time.Minute
+
+// Devolve quando o mesmo texto saiu para a mesma conversa, dentro da janela.
+func (b *Banco) MesmoTextoSaiu(ctx context.Context, conversa, texto string, desde time.Time) (bool, time.Time) {
+	var em int64
+	b.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(enviado_em), 0) FROM envios
+		WHERE conversa = ? AND texto = ? AND estado = 'enviado' AND enviado_em > ?`,
+		conversa, texto, desde.Unix()).Scan(&em)
+	if em == 0 {
+		return false, time.Time{}
+	}
+	return true, time.Unix(em, 0)
+}

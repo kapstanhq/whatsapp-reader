@@ -150,9 +150,18 @@ func (e *Elo) preparar(r *http.Request) (any, error) {
 	if err := e.banco.GravarPrevia(r.Context(), pv.id, jid.String(), nome, p.Texto, pv.em); err != nil {
 		return nil, err
 	}
+	ja, quando := e.banco.JaEscreveu(r.Context(), jid.String())
+	aviso := avisoDeRisco(ja, quando)
+	// Passado o minuto do dedo duplo, repetir é decisão — e decisão se INFORMA.
+	if repetiu, saiu := e.banco.MesmoTextoSaiu(r.Context(), jid.String(), p.Texto,
+		time.Now().Add(-24*time.Hour)); repetiu {
+		aviso = fmt.Sprintf("ATENÇÃO · esta MESMA mensagem já saiu para esta pessoa às %s. "+
+			"Confirme com o corretor que é reenvio mesmo.\n%s", saiu.Format("15:04"), aviso)
+	}
 	return map[string]any{
 		"previa": pv.id, "nome": nome, "conversa": jid.String(),
 		"texto": p.Texto, "vale_ate": pv.em.Add(previaVale).Unix(),
+		"aviso": aviso,
 	}, nil
 }
 
@@ -202,6 +211,17 @@ func (e *Elo) enviar(r *http.Request) (any, error) {
 	if calou, motivo := e.pediuSilencio(pv.conversa); calou {
 		e.banco.MarcarRecusado(ctx, pv.id, "na lista de não contatar")
 		return nil, erroSilencio(pv.nome, motivo)
+	}
+	// Dedo duplo, ou um retry de quem achou que a primeira falhou. Ninguém
+	// ESCOLHE mandar o mesmo texto à mesma pessoa dentro de um minuto — e o
+	// dano é do lado de quem recebe. Passado o minuto vira decisão, e aí a
+	// prévia avisa em vez de barrar.
+	if repetiu, saiu := e.banco.MesmoTextoSaiu(ctx, pv.conversa.String(), pv.texto,
+		time.Now().Add(-janelaDedoDuplo)); repetiu {
+		e.banco.MarcarRecusado(ctx, pv.id, "mesma mensagem, mesma conversa, menos de um minuto")
+		return nil, fmt.Errorf("esta mesma mensagem saiu para %s às %s, há menos de um minuto. "+
+			"Se a intenção é reenviar, espere um minuto e prepare de novo — a prévia vai avisar "+
+			"que já foi", ou(pv.nome, "esta pessoa"), saiu.Format("15:04:05"))
 	}
 	if err := e.cabeNaJanela(ctx, pv.conversa.String()); err != nil {
 		return nil, err

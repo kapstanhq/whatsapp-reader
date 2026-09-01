@@ -98,6 +98,15 @@ func Servir(dir string) error {
 		return fmt.Errorf("conectar: %w", err)
 	}
 
+	// A agenda do aparelho é a única fonte de nome: o history sync traz as
+	// conversas sem ele. Falhar aqui não derruba a ponte — só deixa as
+	// conversas com telefone no lugar do nome.
+	if n, err := SincronizarNomes(ctx, cli, banco); err != nil {
+		fmt.Fprintln(os.Stderr, "nomes da agenda:", err)
+	} else if n > 0 {
+		fmt.Printf("· %d conversas ganharam nome da sua agenda\n", n)
+	}
+
 	elo, err := AbrirElo(dir, cli, banco)
 	if err != nil {
 		return fmt.Errorf("elo: %w", err)

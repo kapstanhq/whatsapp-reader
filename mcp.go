@@ -314,11 +314,13 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 		// autoriza não viu o que autoriza — e é essa a única coisa que a
 		// prévia serve para garantir.
 		return fmt.Sprintf(
-			"PRÉVIA %s · NADA FOI ENVIADO AINDA\n\npara: %s (%s)\ntexto:\n%s\n\n"+
-				"Mostre isto ao corretor, com o nome e o texto inteiros, e espere ELE autorizar.\n"+
+			"PRÉVIA %s · NADA FOI ENVIADO AINDA\n\npara: %s (%s)\n%s\ntexto:\n%s\n\n"+
+				"Mostre isto ao corretor, com o nome, o AVISO e o texto inteiros, e espere ELE\n"+
+				"autorizar. "+
 				"Depois: enviar_mensagem com previa=%s, a mesma conversa e o mesmo texto.\n"+
 				"A prévia vale 10 minutos e serve uma vez só.",
-			campo(res, "previa"), nome, campo(res, "conversa"), campo(res, "texto"),
+			campo(res, "previa"), nome, campo(res, "conversa"), campo(res, "aviso"),
+			campo(res, "texto"),
 			campo(res, "previa")), nil
 
 	case "enviar_mensagem":
