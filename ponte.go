@@ -134,7 +134,7 @@ func (e *Elo) preparar(r *http.Request) (any, error) {
 	if p.Texto == "" {
 		return nil, fmt.Errorf("texto vazio")
 	}
-	nome := e.banco.NomeDe(r.Context(), jid.String())
+	nome := comoChamar(e.banco.NomeDe(r.Context(), jid.String()), jid.String())
 	// As duas travas respondem AQUI e não no envio: o corretor descobre o
 	// limite antes de escrever a mensagem, e não com ela pronta na tela.
 	if calou, motivo := e.pediuSilencio(jid); calou {

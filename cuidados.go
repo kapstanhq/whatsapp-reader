@@ -147,3 +147,34 @@ func erroSilencio(nome, motivo string) error {
 	return fmt.Errorf("%s está na lista de não contatar. "+
 		"Para tirar, edite %s no diretório da ponte", quem, arquivoSilencio)
 }
+
+// -- 4 · como chamar quem vai receber --------------------------------------
+
+/* O contrato manda a prévia mostrar "o nome como ele conhece a pessoa". Quando
+   o contato não está salvo — e é assim que TODO lead novo chega — não há nome,
+   e mostrar o jid duas vezes não diz nada a quem autoriza.
+
+   Então o telefone vira legível e o fato de não estar salvo é dito na cara: é
+   informação que muda a decisão do corretor, não ruído. */
+
+func comoChamar(nome, jid string) string {
+	if strings.TrimSpace(nome) != "" {
+		return nome
+	}
+	n := soDigitos(jid)
+	if n == "" {
+		return "contato não salvo"
+	}
+	return telefoneBR(n) + " · não está salvo"
+}
+
+// 555192601031 -> +55 51 9260-1031. Fora do formato brasileiro, devolve o que
+// veio: um número estrangeiro meio formatado engana mais que um número cru.
+func telefoneBR(n string) string {
+	if !strings.HasPrefix(n, "55") || len(n) < 12 || len(n) > 13 {
+		return "+" + n
+	}
+	ddd, resto := n[2:4], n[4:]
+	corte := len(resto) - 4
+	return fmt.Sprintf("+55 %s %s-%s", ddd, resto[:corte], resto[corte:])
+}

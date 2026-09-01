@@ -308,7 +308,7 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 		}
 		nome := campo(res, "nome")
 		if nome == "" {
-			nome = campo(res, "conversa")
+			nome = "contato não salvo"
 		}
 		// Este bloco é para ser MOSTRADO inteiro. Se o agente o resumir, quem
 		// autoriza não viu o que autoriza — e é essa a única coisa que a

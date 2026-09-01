@@ -143,3 +143,17 @@ func TestCodigoPreviaEvitaAmbiguidade(t *testing.T) {
 		}
 	}
 }
+
+func TestComoChamarQuemNaoEstaSalvo(t *testing.T) {
+	casos := []struct{ nome, jid, esperado string }{
+		{"Joana Ribeiro", "5551999998888@s.whatsapp.net", "Joana Ribeiro"},
+		{"", "555192601031@s.whatsapp.net", "+55 51 9260-1031 · não está salvo"},
+		{"", "5551999998888@s.whatsapp.net", "+55 51 99999-8888 · não está salvo"},
+		{"", "14155551234@s.whatsapp.net", "+14155551234 · não está salvo"},
+	}
+	for _, c := range casos {
+		if s := comoChamar(c.nome, c.jid); s != c.esperado {
+			t.Errorf("comoChamar(%q, %q) = %q, esperava %q", c.nome, c.jid, s, c.esperado)
+		}
+	}
+}
