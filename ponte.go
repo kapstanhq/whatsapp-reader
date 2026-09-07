@@ -151,7 +151,7 @@ func (e *Elo) preparar(r *http.Request) (any, error) {
 		return nil, err
 	}
 	ja, quando := e.banco.JaEscreveu(r.Context(), jid.String())
-	aviso := avisoDeRisco(ja, quando)
+	aviso := avisoDeRisco(ja, e.banco.ConversaVirgem(r.Context(), jid.String()), quando)
 	// Passado o minuto do dedo duplo, repetir é decisão — e decisão se INFORMA.
 	if repetiu, saiu := e.banco.MesmoTextoSaiu(r.Context(), jid.String(), p.Texto,
 		time.Now().Add(-24*time.Hour)); repetiu {
@@ -234,7 +234,7 @@ func (e *Elo) enviar(r *http.Request) (any, error) {
 	resp, err := e.cli.SendMessage(env, pv.conversa, msg)
 	if err != nil {
 		e.banco.MarcarRecusado(context.Background(), pv.id, err.Error())
-		return nil, err
+		return nil, traduzirEnvio(err, pv.nome)
 	}
 	e.banco.MarcarEnviado(context.Background(), pv.id, resp.ID, resp.Timestamp)
 	// O que sai pela ponte entra em `mensagens` na hora, e não quando (ou se) o
@@ -245,6 +245,21 @@ func (e *Elo) enviar(r *http.Request) (any, error) {
 		"", pv.nome, true, resp.Timestamp, msg)
 	return map[string]any{"id": resp.ID, "em": resp.Timestamp.Unix(),
 		"para": pv.nome, "conversa": pv.conversa.String()}, nil
+}
+
+/* O 463 chega como "server returned error 463" e não diz nada a quem lê. É o
+   caso do primeiro contato, que a prévia já avisa — mas o aviso pode ter sido
+   dado horas antes, e quem vê o erro é quem está com a mensagem na mão. */
+
+func traduzirEnvio(err error, nome string) error {
+	if !strings.Contains(err.Error(), "463") {
+		return err
+	}
+	return fmt.Errorf("o WhatsApp recusou este envio (erro 463) porque não existe conversa "+
+		"com %s neste número. Desde julho de 2026 é assim para todo primeiro contato, e não "+
+		"tem contorno pela ponte: a primeira mensagem tem que sair do aplicativo do celular. "+
+		"Entregue o texto para o corretor copiar — depois que ela existir, a ponte responde "+
+		"normalmente", ou(nome, "essa pessoa"))
 }
 
 func (e *Elo) estado(r *http.Request) (any, error) {

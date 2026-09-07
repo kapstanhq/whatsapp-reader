@@ -77,6 +77,107 @@ func (e *Elo) pediuSilencio(jid types.JID) (bool, string) {
 	return false, ""
 }
 
+/* E o comando que escreve nela, porque o contrato do pack chama os dois lugares
+   de obrigatórios — a carteira e esta lista — e a skill não tinha como cumprir o
+   segundo: o arquivo mora no diretório da PONTE, que a carteira não conhece (ela
+   pode estar no Google Drive, onde o daemon não chega). Sem isto, um pedido de
+   silêncio ficava metade escrito. */
+
+func NaoContatar(dir string, args []string) error {
+	caminho := filepath.Join(dir, arquivoSilencio)
+
+	if len(args) == 0 {
+		b, err := os.ReadFile(caminho)
+		if err != nil {
+			fmt.Println("ninguém na lista de não contatar.")
+			fmt.Println("para pôr:  whatsapp-reader nao-contatar 5551999998888 \"pediu em 12/08\"")
+			return nil
+		}
+		fmt.Print(string(b))
+		return nil
+	}
+
+	tirar := args[0] == "--tirar"
+	if tirar {
+		if len(args) < 2 {
+			return fmt.Errorf("falta o número: whatsapp-reader nao-contatar --tirar 5551999998888")
+		}
+		args = args[1:]
+	}
+	numero := soDigitos(args[0])
+	if numero == "" {
+		return fmt.Errorf("número inválido: %q", args[0])
+	}
+	motivo := strings.TrimSpace(strings.Join(args[1:], " "))
+
+	var linhas []string
+	if b, err := os.ReadFile(caminho); err == nil {
+		linhas = strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	} else {
+		// O cabeçalho nasce junto: quem abrir o arquivo daqui a um mês precisa
+		// saber o que ele faz sem procurar o README.
+		linhas = []string{
+			"# Quem pediu para não ser contatado. Uma linha por pessoa:",
+			"#   <número> · <motivo e data>",
+			"# A ponte RECUSA qualquer envio para quem está aqui, e a recusa diz o motivo.",
+			"# Tirar alguém:  whatsapp-reader nao-contatar --tirar <número>",
+		}
+	}
+
+	sobrou := linhas[:0]
+	achou := false
+	for _, l := range linhas {
+		corte := strings.TrimSpace(l)
+		if corte != "" && !strings.HasPrefix(corte, "#") {
+			campo := corte
+			if i := strings.IndexAny(corte, "·|#,;\t"); i >= 0 {
+				campo = corte[:i]
+			}
+			if n := soDigitos(campo); n != "" && (n == numero ||
+				strings.HasSuffix(numero, n) || strings.HasSuffix(n, numero)) {
+				achou = true
+				continue // a linha velha sai: ou é remoção, ou é motivo novo
+			}
+		}
+		sobrou = append(sobrou, l)
+	}
+
+	if tirar {
+		if !achou {
+			fmt.Printf("%s não estava na lista.\n", numero)
+			return nil
+		}
+		if err := gravarLinhas(caminho, sobrou); err != nil {
+			return err
+		}
+		fmt.Printf("%s saiu da lista — a ponte volta a poder mandar para esse número.\n", numero)
+		return nil
+	}
+
+	linha := numero
+	if motivo != "" {
+		linha += " · " + motivo
+	}
+	sobrou = append(sobrou, linha)
+	if err := gravarLinhas(caminho, sobrou); err != nil {
+		return err
+	}
+	verbo := "entrou na lista"
+	if achou {
+		verbo = "já estava na lista, e o motivo foi trocado"
+	}
+	fmt.Printf("%s %s. Nenhuma skill manda mensagem para ele a partir de agora.\n", numero, verbo)
+	fmt.Println("Falta o outro lado: `não contatar: sim` no arquivo dele, na carteira.")
+	return nil
+}
+
+func gravarLinhas(caminho string, linhas []string) error {
+	if err := os.MkdirAll(filepath.Dir(caminho), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(caminho, []byte(strings.Join(linhas, "\n")+"\n"), 0o600)
+}
+
 // -- 2 · a prévia envelhece quando o cliente escreve -----------------------
 
 /* O corretor responde pelo celular enquanto a prévia espera na tela, e o
@@ -200,11 +301,37 @@ func (b *Banco) JaEscreveu(ctx context.Context, conversa string) (bool, time.Tim
 	return true, time.Unix(em, 0)
 }
 
-func avisoDeRisco(jaEscreveu bool, quando time.Time) string {
+/* Existe alguma mensagem nesta conversa, em qualquer direção? É outra pergunta
+   que `JaEscreveu`, e a diferença decide se o envio vai sequer sair.
+
+   Desde 02/07/2026 o WhatsApp RECUSA `SendMessage` com erro 463 para quem nunca
+   trocou mensagem com a conta (whatsmeow #1197, aberta). Salvar o contato na
+   agenda não resolve — só uma mensagem saindo do aplicativo oficial abre a
+   conversa. Depois disso a ponte responde normalmente. */
+
+func (b *Banco) ConversaVirgem(ctx context.Context, conversa string) bool {
+	var n int
+	b.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM mensagens WHERE conversa = ?`, conversa).Scan(&n)
+	return n == 0
+}
+
+func avisoDeRisco(jaEscreveu, virgem bool, quando time.Time) string {
+	if virgem {
+		// Não é tutela nossa: é a plataforma recusando. Dizer isto ANTES vale
+		// mais do que traduzir o 463 depois — o corretor decide com o caminho
+		// na mão, em vez de descobrir com a mensagem pronta e um erro na tela.
+		return "ATENÇÃO · não existe conversa com esta pessoa neste WhatsApp: nem ela " +
+			"escreveu, nem você. Desde julho de 2026 o WhatsApp RECUSA esse envio (erro 463), " +
+			"e salvar na agenda não resolve — quem abre a conversa tem que ser o aplicativo do " +
+			"celular. O caminho é o corretor mandar a primeira mensagem por lá; depois disso a " +
+			"ponte responde normalmente. Ofereça o texto para ele copiar."
+	}
 	if !jaEscreveu {
-		return "ATENÇÃO · esta pessoa NUNCA escreveu para você por aqui. Abrir conversa " +
-			"com quem nunca respondeu é o que faz uma conta ser restringida, e a restrição " +
-			"desliga esta ponte. Diga isso ao corretor antes de ele autorizar."
+		return "ATENÇÃO · esta pessoa NUNCA escreveu para você por aqui — você já mandou, " +
+			"ela não respondeu. Abrir conversa com quem nunca respondeu é o que faz uma conta " +
+			"ser restringida, e a restrição desliga esta ponte. Diga isso ao corretor antes de " +
+			"ele autorizar."
 	}
 	dias := int(time.Since(quando).Hours() / 24)
 	switch {

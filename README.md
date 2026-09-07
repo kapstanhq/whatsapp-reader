@@ -66,6 +66,14 @@ pareamento cai e o histórico não volta.
 
 ### O que o envio recusa
 
+O primeiro contato tem uma recusa que **não é nossa**: desde **02/07/2026** o
+WhatsApp responde **erro 463** a qualquer mensagem para quem nunca trocou
+mensagem com a conta ([whatsmeow #1197](https://github.com/tulir/whatsmeow/issues/1197),
+aberta). Salvar na agenda não resolve — a conversa só abre pelo aplicativo do
+celular, e depois disso a ponte responde normalmente. A prévia diz isso ANTES,
+quando vê que a conversa não existe, e o envio traduz o 463 se ele vier assim
+mesmo. É o contrário de esconder: quem lê recebe o caminho, não um número.
+
 ```
 mais de uma conversa por chamada     não existe como forma: é string, não lista
 grupo, canal, lista de transmissão   recusados pelo TIPO do destinatário
@@ -104,14 +112,42 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o whatsapp-reader-mac .
 ## Usar
 
 ```sh
-whatsapp-reader serve     # janela própria: mantém a conexão e grava
-whatsapp-reader mcp       # o que o agente executa: só lê o banco
+whatsapp-reader serve          # janela própria: mantém a conexão e grava
+whatsapp-reader mcp            # o que o agente executa: só lê o banco
+whatsapp-reader estado         # a ponte está de pé? conectada? parada desde quando?
+whatsapp-reader nao-contatar   # quem não pode receber mensagem
 ```
+
+O `estado` sai com **1** quando a ponte não está no ar, para quem quiser chamá-lo
+de um script. O `nao-contatar` sem argumento lista; com `<número> "<motivo>"`
+põe; com `--tirar <número>` remove. Ele existe porque o arquivo mora no
+diretório da ponte, e quem precisa escrever nele é uma skill que só conhece a
+carteira — que pode estar no Google Drive, onde o daemon não chega.
 
 **São dois processos, e a razão importa.** O `serve` precisa sobreviver ao
 agente fechar: é ele que recebe as mensagens. Se a janela dele fechar, o
 histórico congela no último momento em que ele esteve vivo, e **o que passou
 enquanto ele esteve fora não volta**.
+
+Isso não é hipótese. No 01/09/2026 o daemon desta máquina morreu às 11:05 e
+ficou fora **seis dias** — e `estado_da_ponte` seguiu respondendo o número de
+conversas, sem uma palavra sobre estar caído, porque lia só o banco. O banco de
+um daemon morto tem a cara exata do banco de um dia quieto. É por isso que o
+daemon agora **bate no banco a cada 30 s**, e é a batida velha que o `estado`
+lê para dizer há quanto tempo ele se foi.
+
+**Queda de rede ele resolve sozinho** — o whatsmeow nasce com `EnableAutoReconnect`
+e força a volta se os pings falharem por três minutos. O que ele não resolve é o
+processo deixar de existir (reboot, a janela fechada, um `kill`), nem o que exige
+gente: sessão assumida por outro dispositivo, deslogada no celular, versão velha,
+conta restringida. Cada um desses vira uma linha que o `estado` mostra, dizendo
+qual dos dois casos é.
+
+**Para ele voltar sozinho depois de um reboot**, o caminho é o agendador do
+sistema — Tarefa Agendada no Windows (gatilho "ao fazer logon", ação
+`whatsapp-reader serve`), ou um `launchd` com `KeepAlive` no macOS. Sem isso,
+a disciplina de reabrir a janela é a única coisa entre a conta e mais uma semana
+de silêncio, e ela já falhou uma vez aqui.
 
 Na primeira execução, o `serve` mostra um QR — no terminal e também em
 `qr.png`, para quando o terminal não desenha os blocos. Escaneie em
@@ -131,7 +167,7 @@ claude mcp add whatsapp -- /caminho/para/whatsapp-reader mcp
 | `listar_conversas` | conversas por atividade, com contagem; filtra por nome ou telefone |
 | `listar_mensagens` | mensagens por conversa, por período ou por texto |
 | `ultima_interacao` | quando foi a última mensagem, de quem, e há quantos dias |
-| `estado_da_ponte` | quanto está guardado e até quando |
+| `estado_da_ponte` | a SAÚDE: de pé? conectada? parada desde quando? — mais o que está guardado e o número da conta |
 | `preparar_envio` | MOSTRA a mensagem antes de ela sair: para quem, o nome, o texto |
 | `enviar_mensagem` | envia o que a prévia mostrou — uma por vez, nunca em lote |
 

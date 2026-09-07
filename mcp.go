@@ -200,7 +200,10 @@ func catalogo() []map[string]any {
 				"title": "Enviar a mensagem no WhatsApp"}),
 
 		tool("estado_da_ponte",
-			"Quanto a ponte tem guardado e até quando. Use antes de afirmar que algo não existe.",
+			"A SAÚDE da ponte e o que ela tem guardado: se o daemon está de pé, se está conectado, "+
+				"há quanto tempo o histórico parou de crescer, e o número desta conta. "+
+				"Chame ANTES de ler conversa e antes de afirmar que algo não existe — "+
+				"histórico congelado responde igual a histórico vazio.",
 			map[string]any{}, nil),
 	}
 }
@@ -297,7 +300,7 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 			em.Format("2006-01-02 15:04"), dias, ultima, texto), nil
 
 	case "preparar_envio":
-		elo, err := AbrirEloCliente(dir)
+		elo, err := eloVivo(ctx, b, dir)
 		if err != nil {
 			return "", err
 		}
@@ -324,7 +327,7 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 			campo(res, "previa")), nil
 
 	case "enviar_mensagem":
-		elo, err := AbrirEloCliente(dir)
+		elo, err := eloVivo(ctx, b, dir)
 		if err != nil {
 			return "", err
 		}
@@ -337,21 +340,40 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 			campo(res, "para"), campo(res, "conversa"), campo(res, "id")), nil
 
 	case "estado_da_ponte":
-		c, m := b.Contagem(ctx)
-		periodo := "sem mensagens"
-		ms, err := b.ListarMensagens(ctx, "", "", time.Time{}, time.Time{}, 1)
-		if err == nil && len(ms) > 0 {
-			periodo = "a mais recente é de " + ms[0].Em.Format("2006-01-02 15:04")
-		}
+		// Antes isto contava o banco e mais nada — e o banco de um daemon morto
+		// tem a cara exata do banco de um dia quieto. Quem responde agora é a
+		// Saude, e o veredito vem na primeira linha, antes de qualquer número.
+		s := b.Saude(ctx)
 		total, distintos, _, ultimo, _ := b.EnviosNaJanela(ctx, time.Now().Add(-time.Hour), "")
 		envios := fmt.Sprintf("nesta hora saíram %d mensagens pela ponte, para %d conversas (teto: %d)",
 			total, distintos, distintosHora)
 		if !ultimo.IsZero() {
 			envios += " · a última às " + ultimo.Format("15:04")
 		}
-		return fmt.Sprintf("%d conversas, %d mensagens · %s\n%s", c, m, periodo, envios), nil
+		out := s.Descrever() + "\n" + envios
+		if s.Numero != "" {
+			out += "\no número desta conta: " + s.Numero +
+				" — é para ele que vai o envio de teste do começo"
+		}
+		return out, nil
 	}
 	return "", fmt.Errorf("tool desconhecida: %s", nome)
+}
+
+/* O `elo.json` sozinho não prova que o daemon existe: ele some no Fechar()
+   gracioso, mas FICA quando o processo morre de vez — reboot, kill, a janela
+   fechada no X. O que sobra aponta para uma porta que já não é de ninguém, e o
+   erro que chegava era um timeout de HTTP.
+
+   A batida responde antes de tentar, e responde com o diagnóstico inteiro: quem
+   pediu para enviar precisa saber o que fazer, não que uma conexão falhou. */
+
+func eloVivo(ctx context.Context, b *Banco, dir string) (*EloCliente, error) {
+	if s := b.Saude(ctx); !s.Vivo {
+		return nil, fmt.Errorf("o envio precisa do daemon, e ele não está no ar.\n\n%s",
+			s.Descrever())
+	}
+	return AbrirEloCliente(dir)
 }
 
 func parseData(s string) (time.Time, error) {

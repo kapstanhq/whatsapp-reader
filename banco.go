@@ -58,6 +58,9 @@ func AbrirBanco(caminho string) (*Banco, error) {
 	if _, err := db.Exec(esquemaEnvios); err != nil {
 		return nil, err
 	}
+	if _, err := db.Exec(esquemaEstado); err != nil {
+		return nil, err
+	}
 	return &Banco{db: db}, nil
 }
 
