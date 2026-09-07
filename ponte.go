@@ -150,8 +150,19 @@ func (e *Elo) preparar(r *http.Request) (any, error) {
 	if err := e.banco.GravarPrevia(r.Context(), pv.id, jid.String(), nome, p.Texto, pv.em); err != nil {
 		return nil, err
 	}
-	ja, quando := e.banco.JaEscreveu(r.Context(), jid.String())
-	aviso := avisoDeRisco(ja, e.banco.ConversaVirgem(r.Context(), jid.String()), quando)
+	// Mandar para si mesmo é o DEGRAU DE TESTE do começo, e ele caía no pior
+	// aviso que existe: numa conversa de alguém consigo mesmo toda mensagem é
+	// de_mim=1, então "ela nunca escreveu para você" é sempre verdade e nunca
+	// quer dizer nada. Alarme que dispara no caso combinado é alarme que ensina
+	// a ignorar os outros.
+	aviso := ""
+	if e.cli.Store.ID != nil && jid.User == e.cli.Store.ID.User {
+		aviso = "é o SEU PRÓPRIO número: a mensagem vai para a sua conversa consigo mesmo. " +
+			"É o envio de teste, não abre conversa com ninguém e não conta risco nenhum."
+	} else {
+		ja, quando := e.banco.JaEscreveu(r.Context(), jid.String())
+		aviso = avisoDeRisco(ja, e.banco.ConversaVirgem(r.Context(), jid.String()), quando)
+	}
 	// Passado o minuto do dedo duplo, repetir é decisão — e decisão se INFORMA.
 	if repetiu, saiu := e.banco.MesmoTextoSaiu(r.Context(), jid.String(), p.Texto,
 		time.Now().Add(-24*time.Hour)); repetiu {
