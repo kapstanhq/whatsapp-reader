@@ -91,7 +91,7 @@ func despachar(ctx context.Context, b *Banco, dir string, r reqRPC) (any, *errRP
 		return map[string]any{
 			"protocolVersion": versao,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "whatsapp-reader", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "whatsapp-reader", "version": versaoAtual()},
 		}, nil
 
 	case "ping":

@@ -3,6 +3,8 @@
 *.exe
 whatsapp-reader
 whatsapp-reader-*
+# o que o GoReleaser gera (goreleaser release --snapshot)
+dist/
 
 # os dados e as chaves de sessão NUNCA entram aqui
 *.db

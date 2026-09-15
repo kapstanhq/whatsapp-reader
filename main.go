@@ -56,7 +56,7 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Println(`whatsapp-reader · as suas conversas, no seu computador
+		fmt.Println(`whatsapp-reader ` + versaoAtual() + ` · as suas conversas, no seu computador
 
   serve          mantém a conexão viva e grava o que chega
   mcp            serve as tools para o agente (lê o banco)

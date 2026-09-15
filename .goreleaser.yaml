@@ -1,0 +1,43 @@
+# Binários prontos a cada tag v*: sem CGO, os seis alvos de uma vez, a partir
+# de uma máquina Linux no CI. A versão entra por ldflags em main.versao.
+#
+# A release nasce como RASCUNHO: o repositório é público, e quem publica é o
+# mantenedor, depois de conferir os arquivos.
+
+version: 2
+
+project_name: whatsapp-reader
+
+builds:
+  - main: .
+    binary: whatsapp-reader
+    env:
+      - CGO_ENABLED=0
+    goos: [windows, darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.versao={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+# As notas saem do CHANGELOG.md, escritas à mão; a lista de commits não diz o
+# que muda para quem usa.
+changelog:
+  disable: true
+
+release:
+  draft: true
