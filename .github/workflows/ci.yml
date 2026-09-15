@@ -58,3 +58,11 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      # Quem importa transcricao não pode herdar whatsmeow nem SQLite, e midia
+      # não pode depender de transcricao: é o que deixa cada um reutilizável.
+      - name: regras de dependência
+        run: |
+          fora=$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./transcricao/... \
+            | grep -v -e '^$' -e '^github.com/kapstanhq/whatsapp-reader/transcricao' || true)
+          test -z "$fora" || { echo "transcricao importa fora da biblioteca padrão:"; echo "$fora"; exit 1; }
+          ! go list -deps ./midia/... | grep '^github.com/kapstanhq/whatsapp-reader/transcricao'
