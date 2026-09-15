@@ -60,6 +60,7 @@ func Servir(dir string) error {
 	fmt.Println("· transcrição:", mt.descricao)
 	cfg := configEsteiraPadrao(g.dias)
 	cfg.motor, cfg.idioma = mt.motor, mt.idioma
+	cfg.guardarDias = diasDeGuarda(os.Getenv)
 	esteira, err := AbrirEsteira(ctx, dir, banco, cli, cfg)
 	if err != nil {
 		return err

@@ -58,6 +58,8 @@ type configEsteira struct {
 	maxTranscricoes   int           // tentativas por transcrição
 	esperaTranscricao time.Duration // primeira espera depois de um erro passageiro
 	reverificar       time.Duration // quanto tempo vale a conferência do motor
+
+	guardarDias int // WHATSAPP_READER_MIDIA_GUARDAR_DIAS; zero guarda os arquivos para sempre
 }
 
 func configEsteiraPadrao(dias int) configEsteira {
@@ -113,6 +115,10 @@ func (e *Esteira) iniciar(ctx context.Context) error {
 	if e.cfg.motor != nil {
 		e.wg.Add(1)
 		go e.transcreverSempre(vivo)
+	}
+	if e.cfg.guardarDias > 0 {
+		e.wg.Add(1)
+		go e.limparSempre(vivo)
 	}
 	return nil
 }
