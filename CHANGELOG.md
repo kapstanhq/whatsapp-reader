@@ -18,11 +18,16 @@ menor pode mudar a API dos pacotes.
   impede de andar.
 - Subcomando `verificar [arquivo]`: o que falta instalar, e quanto a máquina
   demora para transcrever.
-- `vocabulario.txt`, com os nomes e termos que o motor não adivinharia.
+- Vocabulário em camadas para a transcrição: um pacote base embutido (agentes
+  de IA e WhatsApp), pacotes de ofício instalados por plugin em
+  `vocabulario.d/`, o `vocabulario.txt` pessoal e o nome do contato. A dica
+  respeita um orçamento, os erros conhecidos são corrigidos, e uma correção
+  nova vale para as transcrições antigas. Subcomando `vocabulario` e
+  `verificar --sem-vocabulario`.
 - Retenção opcional dos arquivos de áudio (`WHATSAPP_READER_MIDIA_GUARDAR_DIAS`),
   sem perder transcrição nem chave.
 - Pacotes importáveis: `midia`, `transcricao`, `transcricao/whispercpp`,
-  `transcricao/openai`, `transcricao/ffmpeg`.
+  `transcricao/openai`, `transcricao/ffmpeg`, `transcricao/vocabulario`.
 - CI nos três sistemas, com detector de corrida, staticcheck, govulncheck e as
   regras de dependência entre os pacotes.
 - Binários prontos a cada versão marcada, pelo GoReleaser.
@@ -39,7 +44,8 @@ menor pode mudar a API dos pacotes.
 ### Mudou
 
 - O banco ganhou migrações numeradas (`PRAGMA user_version`), só aditivas: um
-  binário antigo continua lendo um banco migrado.
+  binário antigo continua lendo um banco migrado. A segunda guarda, em cada
+  transcrição, o texto bruto do motor e a dica que foi junto.
 
 ## [0.1.0]
 

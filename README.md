@@ -49,6 +49,7 @@ esteira.go      quem baixa: fila no banco, espera crescente, pedido ao celular
 transcrever.go  quem transcreve: um áudio por vez, e o que fazer com cada erro
 motor.go        o único lugar que lê o ambiente para montar o motor
 verificar.go    o subcomando que diz o que falta instalar
+vocabulario.go  a dica de nomes: base, pacotes, pessoal e a conversa
 limpeza.go      a retenção dos arquivos de áudio
 rotulo.go       o que o agente lê de cada áudio
 mcp.go          o protocolo MCP, JSON-RPC sobre stdio, escrito à mão
@@ -62,6 +63,7 @@ transcricao/             o contrato de transcrição, só com a biblioteca padr�
 transcricao/whispercpp/  whisper.cpp local
 transcricao/openai/      API compatível com a da OpenAI
 transcricao/ffmpeg/      a conversão para WAV
+transcricao/vocabulario/ a dica de nomes e a correção do que volta
 ```
 
 O MCP é escrito à mão porque são quatro métodos — `initialize`, `ping`,
@@ -132,6 +134,7 @@ whatsapp-reader mcp            # o que o agente executa: só lê o banco
 whatsapp-reader estado         # a ponte está de pé? conectada? parada desde quando?
 whatsapp-reader nao-contatar   # quem não pode receber mensagem
 whatsapp-reader verificar      # o que a transcrição de áudio precisa, e se está instalado
+whatsapp-reader vocabulario    # os nomes que ajudam a transcrição, e de onde vêm
 ```
 
 O `estado` sai com **1** quando a ponte não está no ar, para quem quiser chamá-lo
@@ -296,16 +299,49 @@ que o `estado_da_ponte` os lê.
 
 ### Vocabulário
 
-Nome de gente, de rua e de condomínio é onde a transcrição mais erra. Um termo
-por linha em `vocabulario.txt`, no diretório da ponte, vira dica para o motor —
-e vale no áudio seguinte, sem reiniciar:
+Nome de ferramenta, de gente, de rua e de condomínio é onde a transcrição mais
+erra: um "viu, Claude?" falado sai "viu, Cloud?". O remédio tem duas partes —
+uma **dica** que vai junto com o áudio e puxa a grafia certa, e a **correção**
+dos erros já conhecidos no texto que volta. O texto como o motor entregou fica
+guardado ao lado do corrigido.
+
+A dica é pequena (o Whisper aproveita uns 600 caracteres), então ela é montada
+por ordem de importância, com o mais importante no fim:
+
+| fonte | onde | quem mantém |
+|---|---|---|
+| base | embutido: Claude Code, ChatGPT, Gemini, Copilot, WhatsApp… | este projeto |
+| pacotes de ofício | `vocabulario.d/*.txt`, no diretório da ponte | o plugin ou skill que instala |
+| pessoal | `vocabulario.txt`, no diretório da ponte | você |
+| conversa | o nome do contato e o seu | ninguém: é automático |
+
+Quando não cabe tudo, sai primeiro o base. O formato é o mesmo nos arquivos:
 
 ```
-# gente e lugares
-seu João
-calhas
-Alto da Bronze
+# pacote: corretor-imoveis
+CRECI
+ITBI
+Claude Code: Cloud Code
 ```
+
+Uma forma certa por linha; depois dos dois-pontos, os erros que o motor já
+cometeu com ela. A correção vale só para a palavra inteira, e erro que também é
+palavra de verdade não entra: "Cloud Code" sim, "Cloud" sozinho não (existe o
+Google Cloud). Uma correção nova vale também para o que já foi transcrito, e
+tudo é relido a cada áudio, sem reiniciar.
+
+```sh
+whatsapp-reader vocabulario                            # pacotes, dica e correções
+whatsapp-reader vocabulario --conversa "João"          # a dica de uma conversa
+whatsapp-reader vocabulario instalar corretor.txt      # como um plugin traz o seu pacote
+whatsapp-reader vocabulario remover base               # desliga o embutido
+whatsapp-reader verificar --sem-vocabulario nota.ogg   # a mesma nota sem dica, para comparar
+```
+
+Pacote de ofício não mora neste repositório: a ponte é genérica, e o vocabulário
+de corretor de imóveis vem com o plugin de corretor.
+
+Numa nota de voz real, sem a dica saiu "viu, Cloud?"; com ela, "viu, Claude".
 
 ### Quando algo falta
 
@@ -331,7 +367,8 @@ mensagens.db      conversas, mensagens, mídias e transcrições, em WAL
 sessao.db         as chaves da sessão — é isto que mantém você conectado, em WAL
 midia/            os áudios baixados, pelo hash do conteúdo
 modelos/          os modelos do whisper.cpp, se o motor for o local
-vocabulario.txt   a dica de vocabulário para a transcrição, se existir
+vocabulario.txt   o vocabulário pessoal da transcrição, se existir
+vocabulario.d/    os pacotes de vocabulário instalados por plugins
 nao-contatar.txt  quem não pode receber mensagem, se existir
 ```
 
@@ -365,6 +402,7 @@ outro projeto Go:
 | `transcricao/whispercpp` | whisper.cpp local, pela `whisper-cli` | só a biblioteca padrão |
 | `transcricao/openai` | API compatível com a da OpenAI | só a biblioteca padrão |
 | `transcricao/ffmpeg` | conversão para o WAV de 16 kHz | só a biblioteca padrão |
+| `transcricao/vocabulario` | monta a dica por prioridade e orçamento, e corrige erros conhecidos | só a biblioteca padrão |
 
 ```go
 motor := whispercpp.Novo(whispercpp.Config{
