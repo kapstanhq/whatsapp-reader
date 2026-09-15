@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 )
 
 /* A SESSÃO NO DISCO, e por que ela precisa esperar a vez.
@@ -30,7 +29,7 @@ func dsnSessao(dir string) string {
 // um segundo `serve` segurando a sessão — e é isso que quem lê precisa saber,
 // não o código do SQLite.
 func erroSessao(err error) error {
-	if msg := err.Error(); strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked") {
+	if bancoOcupado(err) {
 		return fmt.Errorf("sessao.db está aberta por outro processo — há um segundo `serve` no ar? "+
 			"Feche o outro e rode este de novo (%w)", err)
 	}

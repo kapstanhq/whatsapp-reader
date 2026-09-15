@@ -49,7 +49,8 @@ func AbrirBanco(caminho string) (*Banco, error) {
 	}
 	// O daemon e o `ponte mcp` abrem o MESMO arquivo ao mesmo tempo. Sem WAL,
 	// a leitura do MCP trava a escrita do daemon e mensagem se perde.
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if err := ligarWAL(db); err != nil {
+		db.Close()
 		return nil, err
 	}
 	if _, err := db.Exec(esquema); err != nil {
@@ -59,6 +60,11 @@ func AbrirBanco(caminho string) (*Banco, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(esquemaEstado); err != nil {
+		return nil, err
+	}
+	// Depois do esquema de sempre, o que só migração consegue trazer. Ver esquema.go.
+	if _, err := migrar(context.Background(), db); err != nil {
+		db.Close()
 		return nil, err
 	}
 	return &Banco{db: db}, nil
