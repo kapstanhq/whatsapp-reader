@@ -118,7 +118,9 @@ func TestTranscreveOQueBaixou(t *testing.T) {
 	if a := m.audios[0]; a.Caminho != arquivo || a.Duracao != 42*time.Second || !strings.HasPrefix(a.Mime, "audio/ogg") {
 		t.Errorf("áudio entregue ao motor = %+v", a)
 	}
-	if p := m.pedidos[0]; p.Idioma != "pt" || p.Dica != "seu João, calhas" {
+	// O pessoal vem depois do base, e dentro dele a primeira linha fica por
+	// último: é a que mais pesa.
+	if p := m.pedidos[0]; p.Idioma != "pt" || !strings.HasSuffix(p.Dica, "calhas, seu João") || !strings.Contains(p.Dica, "Claude Code") {
 		t.Errorf("pedido = %+v", p)
 	}
 	if c.e.transcreverUma(ctx) {
@@ -279,6 +281,50 @@ func TestTranscricaoDesligadaNaoReivindica(t *testing.T) {
 	}
 	if s := c.transcrita(t, "A1"); s.estado != "pendente" {
 		t.Errorf("a transcrição devia esperar o motor ser ligado: %+v", s)
+	}
+}
+
+func TestTranscricaoGuardaOBrutoADicaEOTextoCorrigido(t *testing.T) {
+	c, m := cenarioComMotor(t, nil)
+	ctx := context.Background()
+	m.texto = "viu, Cloud Code? pede pro Chat GPT"
+	c.b.GravarConversa(ctx, joaoJID, "João Calhas", c.rel.agora())
+	c.baixado(t, "A1", 0xab)
+
+	c.e.transcreverUma(ctx)
+	var texto, bruto, dica string
+	c.b.db.QueryRow(`SELECT texto, bruto, dica FROM transcricoes WHERE mensagem = 'A1'`).Scan(&texto, &bruto, &dica)
+	if texto != "viu, Claude Code? pede pro ChatGPT" || bruto != "viu, Cloud Code? pede pro Chat GPT" {
+		t.Errorf("texto = %q, bruto = %q", texto, bruto)
+	}
+	if dica != m.pedidos[0].Dica || !strings.HasSuffix(dica, "João Calhas") {
+		t.Errorf("dica guardada = %q, enviada = %q", dica, m.pedidos[0].Dica)
+	}
+}
+
+func TestVocabularioNovoCorrigeOQueJaFoiTranscrito(t *testing.T) {
+	c, m := cenarioComMotor(t, nil)
+	ctx := context.Background()
+	m.texto = "o Clóvis Code travou"
+	c.baixado(t, "A1", 0xab)
+	c.e.transcreverUma(ctx)
+
+	c.e.recorrigirSeMudou(ctx) // anota a assinatura de agora; nada muda
+	if s := c.transcrita(t, "A1"); s.texto != "o Clóvis Code travou" {
+		t.Fatalf("sem regra nova o texto não muda: %q", s.texto)
+	}
+
+	os.WriteFile(filepath.Join(c.dir, arquivoVocabulario), []byte("Claude Code: Clóvis Code\n"), 0o600)
+	c.e.recorrigirSeMudou(ctx)
+	if s := c.transcrita(t, "A1"); s.texto != "o Claude Code travou" {
+		t.Errorf("a regra nova devia corrigir o que já foi transcrito: %q", s.texto)
+	}
+
+	// A assinatura ficou no banco: sem regra nova, nada é relido.
+	c.b.db.Exec(`UPDATE transcricoes SET texto = 'mexido à mão' WHERE mensagem = 'A1'`)
+	c.e.recorrigirSeMudou(ctx)
+	if s := c.transcrita(t, "A1"); s.texto != "mexido à mão" {
+		t.Errorf("sem mudança nas regras, o texto foi relido: %q", s.texto)
 	}
 }
 

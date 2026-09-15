@@ -50,6 +50,9 @@ func (e *Esteira) transcreverSempre(ctx context.Context) {
 	t := time.NewTicker(e.cfg.intervalo)
 	defer t.Stop()
 	for {
+		// Antes da fila: se o vocabulário ganhou uma correção, o que já foi
+		// transcrito também ganha. Ver vocabulario.go.
+		e.recorrigirSeMudou(ctx)
 		for ctx.Err() == nil && e.transcreverUma(ctx) {
 		}
 		select {
@@ -108,17 +111,21 @@ func (e *Esteira) transcrever(ctx context.Context, t tarefaTranscricao) {
 		e.arquivoSumiu(t)
 		return
 	}
+	// A dica leva o nome do contato; o corretor troca os erros já conhecidos.
+	// O texto do motor fica guardado como veio. Ver vocabulario.go.
+	dica, corretor := vocabularioDa(ctx, e.dir, e.banco, t.conversa)
 	r, err := e.cfg.motor.Transcrever(ctx,
 		transcricao.Audio{Caminho: abs, Mime: t.mime, Duracao: time.Duration(t.segundos) * time.Second},
-		transcricao.Pedido{Idioma: e.cfg.idioma, Dica: lerVocabulario(e.dir)})
+		transcricao.Pedido{Idioma: e.cfg.idioma, Dica: dica.Texto})
 
 	var limite *transcricao.ErroLimite
 	switch classe := transcricao.Classificar(err); {
 	case classe == transcricao.Ok:
-		e.escrever(`UPDATE transcricoes SET estado = 'feita', texto = ?, idioma = ?, motor = ?, modelo = ?,
-		                    levou_ms = ?, feita_em = ?, erro = NULL, proxima_em = 0
+		e.escrever(`UPDATE transcricoes SET estado = 'feita', texto = ?, bruto = ?, dica = NULLIF(?, ''),
+		                    idioma = ?, motor = ?, modelo = ?, levou_ms = ?, feita_em = ?, erro = NULL, proxima_em = 0
 		             WHERE mensagem = ? AND conversa = ?`,
-			r.Texto, r.Idioma, r.Motor, r.Modelo, r.Levou.Milliseconds(), e.agora().Unix(), t.mensagem, t.conversa)
+			corretor.Corrigir(r.Texto), r.Texto, dica.Texto,
+			r.Idioma, r.Motor, r.Modelo, r.Levou.Milliseconds(), e.agora().Unix(), t.mensagem, t.conversa)
 	case classe == transcricao.Cancelado, ctx.Err() != nil:
 		e.devolverTranscricao(t, 0, "")
 	case classe == transcricao.Configuracao:
@@ -138,17 +145,18 @@ func (e *Esteira) copiarTranscricao(ctx context.Context, t tarefaTranscricao) bo
 		return false
 	}
 	var texto, idioma, motor, modelo string
+	var bruto, dica sql.NullString
 	err := e.banco.db.QueryRowContext(ctx, `
-		SELECT COALESCE(o.texto, ''), COALESCE(o.idioma, ''), COALESCE(o.motor, ''), COALESCE(o.modelo, '')
+		SELECT COALESCE(o.texto, ''), COALESCE(o.idioma, ''), COALESCE(o.motor, ''), COALESCE(o.modelo, ''), o.bruto, o.dica
 		  FROM transcricoes o JOIN midias md ON md.mensagem = o.mensagem AND md.conversa = o.conversa
-		 WHERE md.sha256 = ? AND o.estado = 'feita' LIMIT 1`, t.sha).Scan(&texto, &idioma, &motor, &modelo)
+		 WHERE md.sha256 = ? AND o.estado = 'feita' LIMIT 1`, t.sha).Scan(&texto, &idioma, &motor, &modelo, &bruto, &dica)
 	if err != nil {
 		return false
 	}
-	e.escrever(`UPDATE transcricoes SET estado = 'feita', texto = ?, idioma = ?, motor = ?, modelo = ?,
+	e.escrever(`UPDATE transcricoes SET estado = 'feita', texto = ?, bruto = ?, dica = ?, idioma = ?, motor = ?, modelo = ?,
 	                    levou_ms = 0, feita_em = ?, erro = NULL, proxima_em = 0
 	             WHERE mensagem = ? AND conversa = ?`,
-		texto, idioma, motor, modelo, e.agora().Unix(), t.mensagem, t.conversa)
+		texto, bruto, dica, idioma, motor, modelo, e.agora().Unix(), t.mensagem, t.conversa)
 	return true
 }
 

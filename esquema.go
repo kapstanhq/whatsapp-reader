@@ -80,6 +80,14 @@ CREATE TABLE IF NOT EXISTS transcricoes (
 );
 CREATE INDEX IF NOT EXISTS idx_transcricoes_fila ON transcricoes(proxima_em) WHERE estado = 'pendente';
 `},
+	// O texto como o motor entregou, antes das correções do vocabulário, e a
+	// dica que foi junto. Com o bruto, um erro novo no vocabulário corrige as
+	// transcrições antigas sem transcrever de novo; com a dica, dá para explicar
+	// por que o motor escreveu o que escreveu.
+	{2, "texto bruto e dica da transcrição", `
+ALTER TABLE transcricoes ADD COLUMN bruto TEXT;
+ALTER TABLE transcricoes ADD COLUMN dica TEXT;
+`},
 }
 
 // Devolve a versão em que o banco ficou.

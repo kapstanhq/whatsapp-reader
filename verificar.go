@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -32,6 +33,10 @@ type peca struct {
 }
 
 func Verificar(dir string, args []string) error {
+	// --sem-vocabulario transcreve sem dica nem correção: é o outro lado da
+	// comparação, para saber se o vocabulário ajuda ou atrapalha neste áudio.
+	semVocabulario := slices.Contains(args, "--sem-vocabulario")
+	args = slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--sem-vocabulario" })
 	mt := montarMotor(dir, os.Getenv)
 	fmt.Println("transcrição:", mt.descricao)
 	if mt.modo == modoDesligada {
@@ -67,7 +72,7 @@ func Verificar(dir string, args []string) error {
 		fmt.Println("\ntudo pronto. Para medir a velocidade: whatsapp-reader verificar <nota.ogg>")
 		return nil
 	}
-	return transcreverParaVer(dir, mt, args[0])
+	return transcreverParaVer(dir, mt, args[0], semVocabulario)
 }
 
 func pecasDoMotor(mt motorMontado, procurar func(string) (string, error), goos string) []peca {
@@ -153,7 +158,7 @@ func servidorLocal(endereco string) bool {
 	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }
 
-func transcreverParaVer(dir string, mt motorMontado, arquivo string) error {
+func transcreverParaVer(dir string, mt motorMontado, arquivo string, semVocabulario bool) error {
 	abs, err := filepath.Abs(arquivo)
 	if err == nil {
 		_, err = os.Stat(abs)
@@ -165,18 +170,23 @@ func transcreverParaVer(dir string, mt motorMontado, arquivo string) error {
 	defer parar()
 
 	duracao := duracaoDoAudio(ctx, mt.ffmpeg, abs)
+	dica, corretor := vocabularioDa(ctx, dir, nil, "")
+	if semVocabulario {
+		dica.Texto, corretor = "", nil
+	}
 	fmt.Printf("\ntranscrevendo %s…\n", filepath.Base(abs))
+	fmt.Println("dica:", cmp.Or(dica.Texto, "(nenhuma)"))
 	r, err := mt.motor.Transcrever(ctx, transcricao.Audio{Caminho: abs, Duracao: duracao},
-		transcricao.Pedido{Idioma: mt.idioma, Dica: lerVocabulario(dir)})
+		transcricao.Pedido{Idioma: mt.idioma, Dica: dica.Texto})
 	if err != nil {
 		return fmt.Errorf("a transcrição falhou (%s): %w", transcricao.Classificar(err), err)
 	}
 	fmt.Println(ritmo(duracao, r.Levou), "·", r.Modelo)
-	texto := r.Texto
-	if texto == "" {
-		texto = "(sem fala reconhecível)"
+	texto := corretor.Corrigir(r.Texto)
+	fmt.Println("\n" + cmp.Or(texto, "(sem fala reconhecível)"))
+	if texto != r.Texto {
+		fmt.Println("\nantes das correções do vocabulário:\n" + r.Texto)
 	}
-	fmt.Println("\n" + texto)
 	return nil
 }
 

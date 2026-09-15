@@ -111,6 +111,10 @@ func Servir(dir string) error {
 			if cli.Store.ID != nil {
 				banco.Anotar(ctx, "numero", cli.Store.ID.User)
 			}
+			// O nome de quem usa a ponte entra na dica de cada áudio. Ver vocabulario.go.
+			if cli.Store.PushName != "" {
+				banco.Anotar(ctx, "nome", cli.Store.PushName)
+			}
 			anotarConexao(ctx, banco, true, "")
 			fmt.Println("· conectado")
 

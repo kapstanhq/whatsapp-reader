@@ -1,0 +1,23 @@
+# pacote: base
+#
+# Os nomes que quem usa agentes de IA fala num áudio e o motor escreve do jeito
+# que ouve. Vem embutido na ponte e é o de MENOR prioridade: pacotes de ofício,
+# o vocabulario.txt e o nome do contato passam na frente quando a dica não cabe.
+#
+# Formato: a forma certa; depois dos dois-pontos, erros que o motor já cometeu
+# com ela. Erro só entra quando não é palavra de verdade em outro contexto:
+# "Cloud Code" entra, "Cloud" sozinho não (Google Cloud).
+#
+# Para editar, copie este arquivo para vocabulario.d/base.txt na pasta da ponte.
+# Para desligar: whatsapp-reader vocabulario remover base
+Claude Code: Cloud Code
+Claude
+ChatGPT: Chat GPT
+GPT
+OpenAI: Open AI
+Gemini: Xemini
+Copilot
+Cursor
+Anthropic
+MCP
+WhatsApp: What'sApp
