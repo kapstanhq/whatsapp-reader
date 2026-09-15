@@ -53,25 +53,18 @@ func Servir(dir string) error {
 		switch e := bruto.(type) {
 
 		case *events.Message:
-			gravarUma(ctx, banco, e.Info.ID, e.Info.Chat.String(),
-				e.Info.Sender.String(), e.Info.PushName, e.Info.IsFromMe,
-				e.Info.Timestamp, e.Message)
+			gravarEvento(ctx, banco, e.Info.Chat.String(), e)
 
 		case *events.HistorySync:
 			n := 0
 			for _, conv := range e.Data.GetConversations() {
 				jid := conv.GetID()
 				for _, hm := range conv.GetMessages() {
-					wm := hm.GetMessage()
-					if wm == nil {
-						continue
+					if wm := hm.GetMessage(); wm != nil {
+						// O histórico vem embrulhado; o ao vivo, não. Ver historico.go.
+						gravarEvento(ctx, banco, jid, mensagemDoHistorico(cli, jid, wm))
+						n++
 					}
-					k := wm.GetKey()
-					gravarUma(ctx, banco, k.GetID(), jid, k.GetParticipant(),
-						wm.GetPushName(), k.GetFromMe(),
-						time.Unix(int64(wm.GetMessageTimestamp()), 0),
-						wm.GetMessage())
-					n++
 				}
 			}
 			c, m := banco.Contagem(ctx)
