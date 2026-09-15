@@ -171,7 +171,13 @@ func (e *Esteira) recorrigirSeMudou(ctx context.Context) {
 		return
 	}
 	for _, m := range mudancas {
-		e.escrever(`UPDATE transcricoes SET texto = ? WHERE mensagem = ? AND conversa = ?`, m.texto, m.mensagem, m.conversa)
+		if _, err := e.banco.db.ExecContext(ctx, `UPDATE transcricoes SET texto = ? WHERE mensagem = ? AND conversa = ?`,
+			m.texto, m.mensagem, m.conversa); err != nil {
+			// Sem anotar a assinatura: com o disco cheio, por exemplo, a próxima
+			// rodada tenta de novo em vez de dar por corrigido o que não foi.
+			fmt.Fprintf(os.Stderr, "!! vocabulário: recorrigir %s: %v\n", m.mensagem, err)
+			return
+		}
 	}
 	e.banco.Anotar(ctx, "vocabulario_regras", assinatura)
 	if len(mudancas) > 0 {
