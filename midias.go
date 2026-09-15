@@ -188,10 +188,12 @@ func (b *Banco) GravarMidia(ctx context.Context, r registroMidia) (bool, error) 
 type ResumoAudios struct {
 	Total, Transcritos, NaFila, SemVolta, Falharam, NaoBaixados int
 	Bytes                                                       int64
+	MaisAntigoNaFila                                            time.Time // quando chegou; zero sem fila
 }
 
 func (b *Banco) ResumoAudios(ctx context.Context) ResumoAudios {
 	var r ResumoAudios
+	var maisAntigo int64
 	b.db.QueryRowContext(ctx, `
 		SELECT COUNT(*),
 		  COALESCE(SUM(CASE WHEN t.estado = 'feita' THEN 1 ELSE 0 END), 0),
@@ -200,11 +202,16 @@ func (b *Banco) ResumoAudios(ctx context.Context) ResumoAudios {
 		  COALESCE(SUM(CASE WHEN md.estado = 'indisponivel' THEN 1 ELSE 0 END), 0),
 		  COALESCE(SUM(CASE WHEN md.estado = 'falhou' OR t.estado = 'falhou' THEN 1 ELSE 0 END), 0),
 		  COALESCE(SUM(CASE WHEN md.estado IN ('guardada','ignorada') THEN 1 ELSE 0 END), 0),
-		  COALESCE(SUM(CASE WHEN md.arquivo IS NOT NULL THEN COALESCE(md.tamanho, 0) ELSE 0 END), 0)
+		  COALESCE(SUM(CASE WHEN md.arquivo IS NOT NULL THEN COALESCE(md.tamanho, 0) ELSE 0 END), 0),
+		  COALESCE(MIN(CASE WHEN md.estado IN ('pendente','baixando','pedida')
+		                      OR t.estado IN ('pendente','transcrevendo') THEN md.em END), 0)
 		  FROM midias md
 		  LEFT JOIN transcricoes t ON t.mensagem = md.mensagem AND t.conversa = md.conversa
 		 WHERE md.tipo = 'audio'`).
-		Scan(&r.Total, &r.Transcritos, &r.NaFila, &r.SemVolta, &r.Falharam, &r.NaoBaixados, &r.Bytes)
+		Scan(&r.Total, &r.Transcritos, &r.NaFila, &r.SemVolta, &r.Falharam, &r.NaoBaixados, &r.Bytes, &maisAntigo)
+	if maisAntigo > 0 {
+		r.MaisAntigoNaFila = time.Unix(maisAntigo, 0)
+	}
 	return r
 }
 
@@ -212,6 +219,11 @@ func (r ResumoAudios) Linha() string {
 	partes := []string{
 		fmt.Sprintf("%d transcritos", r.Transcritos),
 		fmt.Sprintf("%d na fila", r.NaFila),
+	}
+	// Quatro na fila, o mais antigo de dois minutos, é fila andando; de dois
+	// dias, é fila parada. Abaixo de um minuto a idade não diz nada.
+	if d := time.Since(r.MaisAntigoNaFila); !r.MaisAntigoNaFila.IsZero() && d >= time.Minute {
+		partes[1] += " (o mais antigo chegou há " + humano(d) + ")"
 	}
 	if r.SemVolta > 0 {
 		partes = append(partes, fmt.Sprintf("%d sem volta", r.SemVolta))

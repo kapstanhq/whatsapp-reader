@@ -68,6 +68,9 @@ type Saude struct {
 	Conversas int
 	Mensagens int
 	Audios    ResumoAudios // o que a esteira de mídia tem, e o que falta
+	// O motor de transcrição e o que o impede, como o daemon anotou: o `mcp`
+	// não enxerga o ambiente da janela do `serve`.
+	Transcricao, TranscricaoProblema string
 }
 
 func (b *Banco) Saude(ctx context.Context) Saude {
@@ -83,6 +86,8 @@ func (b *Banco) Saude(ctx context.Context) Saude {
 		s.UltimaMsg = ms[0].Em
 	}
 	s.Audios = b.ResumoAudios(ctx)
+	s.Transcricao, _ = b.LerEstado(ctx, "transcricao_motor")
+	s.TranscricaoProblema, _ = b.LerEstado(ctx, "transcricao_problema")
 	return s
 }
 
@@ -131,8 +136,24 @@ func (s Saude) Descrever() string {
 	// pareada ela seria um zero que ninguém pediu.
 	if s.Audios.Total > 0 {
 		out += "\n" + s.Audios.Linha()
+		if l := s.linhaTranscricao(); l != "" {
+			out += "\n" + l
+		}
 	}
 	return out
+}
+
+// O problema vem antes do motor: "whisper.cpp local" com a fila parada é a
+// informação errada no lugar de destaque.
+func (s Saude) linhaTranscricao() string {
+	switch {
+	case s.TranscricaoProblema != "":
+		return "transcrição: PARADA — " + s.TranscricaoProblema +
+			". Rode `whatsapp-reader verificar` na máquina da ponte"
+	case s.Transcricao != "":
+		return "transcrição: " + s.Transcricao
+	}
+	return "" // daemon de antes da transcrição, que não anotava o motor
 }
 
 func humano(d time.Duration) string {
