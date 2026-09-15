@@ -50,6 +50,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "erro:", err)
 			os.Exit(1)
 		}
+	case "verificar":
+		if err := Verificar(dir, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "erro:", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Println(`whatsapp-reader · as suas conversas, no seu computador
 
@@ -58,6 +63,8 @@ func main() {
   estado         diz se a ponte está de pé, conectada, e desde quando parou
   nao-contatar   quem não pode receber mensagem: sem argumento lista;
                  <número> "<motivo>" põe; --tirar <número> remove
+  verificar      o que a transcrição de áudio precisa e se está instalado;
+                 com um arquivo, transcreve e mede a velocidade
 
   Ele LÊ sempre, e manda UMA por vez — com você vendo o texto e para quem
   vai, antes de sair. Disparo em massa não existe aqui: não há como pedir.

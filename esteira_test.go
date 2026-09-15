@@ -354,6 +354,9 @@ func TestEsteiraRecuperaODepoisDaQueda(t *testing.T) {
 	parcial := filepath.Join(c.dir, "midia", "ab", "lixo.ogg.parcial")
 	os.MkdirAll(filepath.Dir(parcial), 0o755)
 	os.WriteFile(parcial, []byte("pela metade"), 0o600)
+	trabalho := filepath.Join(c.dir, "midia", ".tmp", "whisper-123")
+	os.MkdirAll(trabalho, 0o755)
+	os.WriteFile(filepath.Join(trabalho, "entrada.wav"), []byte("RIFF"), 0o600)
 
 	if err := c.e.recuperar(ctx); err != nil {
 		t.Fatal(err)
@@ -364,6 +367,7 @@ func TestEsteiraRecuperaODepoisDaQueda(t *testing.T) {
 		}
 	}
 	naoExisteArquivo(t, parcial)
+	naoExisteArquivo(t, trabalho)
 }
 
 func naoExisteArquivo(t *testing.T, caminho string) {

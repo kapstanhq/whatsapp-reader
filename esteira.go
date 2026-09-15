@@ -17,6 +17,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"github.com/kapstanhq/whatsapp-reader/midia"
+	"github.com/kapstanhq/whatsapp-reader/transcricao"
 )
 
 /* A ESTEIRA: quem baixa o que o handler só registrou.
@@ -51,12 +52,19 @@ type configEsteira struct {
 	pedidosPorHora int           // teto de pedidos de link novo ao celular
 	intervalo      time.Duration // o ticker que acha backoff vencido
 	dias           int           // janela de WHATSAPP_READER_MIDIA_DIAS
+
+	motor             transcricao.Motor // nil: transcrição desligada
+	idioma            string
+	maxTranscricoes   int           // tentativas por transcrição
+	esperaTranscricao time.Duration // primeira espera depois de um erro passageiro
+	reverificar       time.Duration // quanto tempo vale a conferência do motor
 }
 
 func configEsteiraPadrao(dias int) configEsteira {
 	return configEsteira{
 		baixadores: 2, maxTentativas: 6, baseEspera: 2 * time.Minute,
 		pedidosPorHora: 20, intervalo: 30 * time.Second, dias: dias,
+		idioma: "pt", maxTranscricoes: 3, esperaTranscricao: 10 * time.Minute, reverificar: 5 * time.Minute,
 	}
 }
 
@@ -67,14 +75,20 @@ type Esteira struct {
 	cfg   configEsteira
 	agora func() time.Time
 
-	acordar  chan struct{}
-	cancelar context.CancelFunc
-	wg       sync.WaitGroup
-	fechar   sync.Once
+	acordar            chan struct{} // campainha dos downloads
+	acordarTranscricao chan struct{} // e a do transcritor: uma só tocaria para o worker errado
+	cancelar           context.CancelFunc
+	wg                 sync.WaitGroup
+	fechar             sync.Once
+
+	// Só o transcritor lê e escreve estes dois — e ele é um só.
+	problema    string
+	conferidoEm time.Time
 }
 
 func novaEsteira(dir string, b *Banco, wa clienteMidia, cfg configEsteira, agora func() time.Time) *Esteira {
-	return &Esteira{banco: b, dir: dir, wa: wa, cfg: cfg, agora: agora, acordar: make(chan struct{}, 1)}
+	return &Esteira{banco: b, dir: dir, wa: wa, cfg: cfg, agora: agora,
+		acordar: make(chan struct{}, 1), acordarTranscricao: make(chan struct{}, 1)}
 }
 
 // AbrirEsteira recupera o que uma queda deixou pela metade e põe os workers para rodar.
@@ -95,6 +109,10 @@ func (e *Esteira) iniciar(ctx context.Context) error {
 	for i := 0; i < e.cfg.baixadores; i++ {
 		e.wg.Add(1)
 		go e.baixarSempre(vivo)
+	}
+	if e.cfg.motor != nil {
+		e.wg.Add(1)
+		go e.transcreverSempre(vivo)
 	}
 	return nil
 }
@@ -147,7 +165,9 @@ func (e *Esteira) recuperar(ctx context.Context) error {
 		}
 	}
 	e.devolverPedidasVelhas(ctx)
-	// Só o daemon escreve em midia/: todo .parcial que existe na subida é órfão.
+	// O que uma queda deixa no disco: .parcial de download e pasta de trabalho do
+	// whisper. Na subida, ninguém mais está usando nenhum dos dois.
+	os.RemoveAll(filepath.Join(e.dir, "midia", ".tmp"))
 	filepath.WalkDir(filepath.Join(e.dir, "midia"), func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".parcial") {
 			os.Remove(p)
@@ -389,6 +409,7 @@ func (e *Esteira) concluir(t tarefaMidia, rel string, agora time.Time) {
 	}
 	e.escrever(`UPDATE midias SET estado = 'baixada', arquivo = ?, baixada_em = ?, erro = NULL
 	             WHERE mensagem = ? AND conversa = ?`, rel, agora.Unix(), t.mensagem, t.conversa)
+	e.acordarTranscritor()
 }
 
 // Volta para a fila SEM gastar a tentativa: cancelamento, disco cheio, teto de pedidos.

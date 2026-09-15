@@ -52,7 +52,15 @@ func Servir(dir string) error {
 	// A chave de cada anexo é guardada no handler, sem rede; quem baixa é a
 	// esteira, fora dele. Ver midias.go e esteira.go.
 	g := &gravador{banco: banco, dias: diasDeMidia(os.Getenv), agora: time.Now}
-	esteira, err := AbrirEsteira(ctx, dir, banco, cli, configEsteiraPadrao(g.dias))
+	// O motor sai do ambiente desta janela, e o que ele é vai para o banco: o
+	// `mcp` roda com outro ambiente. Ver motor.go.
+	mt := montarMotor(dir, os.Getenv)
+	banco.Anotar(ctx, "transcricao_motor", mt.descricao)
+	banco.Anotar(ctx, "transcricao_problema", mt.problema)
+	fmt.Println("· transcrição:", mt.descricao)
+	cfg := configEsteiraPadrao(g.dias)
+	cfg.motor, cfg.idioma = mt.motor, mt.idioma
+	esteira, err := AbrirEsteira(ctx, dir, banco, cli, cfg)
 	if err != nil {
 		return err
 	}
