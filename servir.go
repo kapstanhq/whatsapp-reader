@@ -49,13 +49,24 @@ func Servir(dir string) error {
 	}
 
 	cli := whatsmeow.NewClient(device, log)
-	// A chave de cada anexo é guardada no handler, sem rede. Ver midias.go.
+	// A chave de cada anexo é guardada no handler, sem rede; quem baixa é a
+	// esteira, fora dele. Ver midias.go e esteira.go.
 	g := &gravador{banco: banco, dias: diasDeMidia(os.Getenv), agora: time.Now}
+	esteira, err := AbrirEsteira(ctx, dir, banco, cli, configEsteiraPadrao(g.dias))
+	if err != nil {
+		return err
+	}
+	defer esteira.Fechar()
+	g.acordar = esteira.Acordar
 	cli.AddEventHandler(func(bruto any) {
 		switch e := bruto.(type) {
 
 		case *events.Message:
 			g.gravar(ctx, e.Info.Chat.String(), e, origemAoVivo)
+
+		case *events.MediaRetry:
+			// O celular respondeu ao pedido de link novo. Só banco aqui; baixar é da esteira.
+			esteira.RespostaDoCelular(ctx, e)
 
 		case *events.HistorySync:
 			n := 0
@@ -196,6 +207,9 @@ func Servir(dir string) error {
 	signal.Notify(parar, os.Interrupt, syscall.SIGTERM)
 	<-parar
 	pararBatida()
+	// Primeiro a esteira: ela devolve à fila o que estava baixando enquanto a
+	// conexão ainda está de pé.
+	esteira.Fechar()
 	// Saída limpa se declara: sem isto, um Ctrl+C ficaria noventa segundos
 	// indistinguível de uma queda, e o diagnóstico diria "fora do ar" sobre
 	// algo que a pessoa acabou de fechar de propósito.
