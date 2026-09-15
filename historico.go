@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -52,13 +51,7 @@ func mensagemDoHistorico(cli interpretador, conversa string, wm *waWeb.WebMessag
 			evt.Info.Sender = s
 		}
 	}
+	// A conversa que se grava continua sendo a string que o sync mandou, e não
+	// o JID interpretado: é com ela que as linhas antigas já estão no banco.
 	return evt.UnwrapRaw()
-}
-
-// Um lugar só para as duas origens gravarem. A conversa vem de fora porque é
-// com ela, do jeito que o sync a escreveu, que as linhas antigas já estão no
-// banco — reescrevê-la a partir do JID interpretado criaria duplicata.
-func gravarEvento(ctx context.Context, b *Banco, conversa string, evt *events.Message) {
-	gravarUma(ctx, b, evt.Info.ID, conversa, evt.Info.Sender.String(),
-		evt.Info.PushName, evt.Info.IsFromMe, evt.Info.Timestamp, evt.Message)
 }

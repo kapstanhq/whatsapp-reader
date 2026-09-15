@@ -67,6 +67,7 @@ type Saude struct {
 	UltimaMsg time.Time // a mensagem mais nova que existe no banco
 	Conversas int
 	Mensagens int
+	Audios    ResumoAudios // o que a esteira de mídia tem, e o que falta
 }
 
 func (b *Banco) Saude(ctx context.Context) Saude {
@@ -81,6 +82,7 @@ func (b *Banco) Saude(ctx context.Context) Saude {
 	if ms, err := b.ListarMensagens(ctx, "", "", time.Time{}, time.Time{}, 1); err == nil && len(ms) > 0 {
 		s.UltimaMsg = ms[0].Em
 	}
+	s.Audios = b.ResumoAudios(ctx)
 	return s
 }
 
@@ -123,8 +125,14 @@ func (s Saude) Descrever() string {
 			periodo += fmt.Sprintf(" — há %s", humano(d))
 		}
 	}
-	return fmt.Sprintf("%s\n\n%d conversas, %d mensagens · %s",
+	out := fmt.Sprintf("%s\n\n%d conversas, %d mensagens · %s",
 		cabeca, s.Conversas, s.Mensagens, periodo)
+	// A linha dos áudios só aparece quando há áudio: numa ponte antiga ou recém
+	// pareada ela seria um zero que ninguém pediu.
+	if s.Audios.Total > 0 {
+		out += "\n" + s.Audios.Linha()
+	}
+	return out
 }
 
 func humano(d time.Duration) string {

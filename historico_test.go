@@ -87,7 +87,8 @@ func TestHistoricoGravaMensagemDeConversaTemporaria(t *testing.T) {
 	}
 	for _, c := range casos {
 		wm := doHistorico(c.conversa, c.id, c.participante, c.deMim, em, c.msg)
-		gravarEvento(ctx, b, c.conversa, mensagemDoHistorico(cli, c.conversa, wm))
+		g := &gravador{banco: b, dias: 7, agora: func() time.Time { return em }}
+		g.gravar(ctx, c.conversa, mensagemDoHistorico(cli, c.conversa, wm), origemHistorico)
 
 		var texto, midia, remetente string
 		var deMim bool

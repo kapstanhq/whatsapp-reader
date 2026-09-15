@@ -49,11 +49,13 @@ func Servir(dir string) error {
 	}
 
 	cli := whatsmeow.NewClient(device, log)
+	// A chave de cada anexo é guardada no handler, sem rede. Ver midias.go.
+	g := &gravador{banco: banco, dias: diasDeMidia(os.Getenv), agora: time.Now}
 	cli.AddEventHandler(func(bruto any) {
 		switch e := bruto.(type) {
 
 		case *events.Message:
-			gravarEvento(ctx, banco, e.Info.Chat.String(), e)
+			g.gravar(ctx, e.Info.Chat.String(), e, origemAoVivo)
 
 		case *events.HistorySync:
 			n := 0
@@ -62,7 +64,7 @@ func Servir(dir string) error {
 				for _, hm := range conv.GetMessages() {
 					if wm := hm.GetMessage(); wm != nil {
 						// O histórico vem embrulhado; o ao vivo, não. Ver historico.go.
-						gravarEvento(ctx, banco, jid, mensagemDoHistorico(cli, jid, wm))
+						g.gravar(ctx, jid, mensagemDoHistorico(cli, jid, wm), origemHistorico)
 						n++
 					}
 				}
