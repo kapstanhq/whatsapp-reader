@@ -36,12 +36,13 @@ func Servir(dir string) error {
 	// "sqlite" é o nome que o modernc registra. O mattn registrava "sqlite3", e
 	// era ele que exigia CGO — e portanto um compilador C na máquina do corretor.
 	log := waLog.Stdout("ponte", "INFO", true)
-	store, err := sqlstore.New(ctx, "sqlite",
-		"file:"+filepath.Join(dir, "sessao.db")+"?_pragma=foreign_keys(1)",
-		waLog.Stdout("sessao", "ERROR", true))
+	store, err := sqlstore.New(ctx, "sqlite", dsnSessao(dir), waLog.Stdout("sessao", "ERROR", true))
 	if err != nil {
-		return fmt.Errorf("abrir sessão: %w", err)
+		return erroSessao(err)
 	}
+	// Fechar faz o checkpoint do WAL: sem isto o que ficou no -wal só volta ao
+	// arquivo principal na próxima abertura.
+	defer store.Close()
 	device, err := store.GetFirstDevice(ctx)
 	if err != nil {
 		return fmt.Errorf("device: %w", err)
