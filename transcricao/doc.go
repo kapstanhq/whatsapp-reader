@@ -19,6 +19,7 @@ Quando um serviço pede para esperar, o erro traz um [ErroLimite] com o tempo.
 Os motores vivem em subpacotes, um por produto:
 
 	transcricao/whispercpp  whisper.cpp local, chamando a whisper-cli
+	transcricao/openai      API compatível com a da OpenAI (OpenAI, Groq, Speaches)
 	transcricao/ffmpeg      converte o áudio para o WAV que os motores locais leem
 
 Motor novo é subpacote novo; nada aqui muda. Este pacote e os subpacotes
