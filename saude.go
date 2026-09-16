@@ -208,8 +208,10 @@ func (b *Banco) OutroDaemon(ctx context.Context) error {
 	return fmt.Errorf("já há uma ponte de pé nesta máquina: o processo %s bateu há %s.\n"+
 		"Dois `serve` sobre a mesma sessão corrompem o ratchet do Signal, e as mensagens "+
 		"passam a chegar sem decifrar.\nUse a janela que já está aberta — `whatsapp-reader "+
+		// Sem ponto no fim: o staticcheck (ST1005) recusa, e a mensagem sai
+		// depois de um "erro: " que o main escreve.
 		"estado` diz o que ela está fazendo.\nSe aquele processo acabou de morrer, espere "+
-		"um minuto e rode de novo.", pid, humano(time.Since(em)))
+		"um minuto e rode de novo", pid, humano(time.Since(em)))
 }
 
 /* O subcomando `estado`: o mesmo diagnóstico sem MCP e sem agente.
