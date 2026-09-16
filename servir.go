@@ -33,6 +33,12 @@ func Servir(dir string) error {
 	}
 	defer banco.Fechar()
 
+	// Antes de tocar na sessão: se outro daemon está batendo, este não sobe.
+	// Ver saude.go.
+	if err := banco.OutroDaemon(ctx); err != nil {
+		return err
+	}
+
 	// "sqlite" é o nome que o modernc registra. O mattn registrava "sqlite3", e
 	// era ele que exigia CGO — e portanto um compilador C na máquina do corretor.
 	log := waLog.Stdout("ponte", "INFO", true)

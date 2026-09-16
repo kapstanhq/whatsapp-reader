@@ -166,7 +166,16 @@ qual dos dois casos é.
 sistema — Tarefa Agendada no Windows (gatilho "ao fazer logon", ação
 `whatsapp-reader serve`), ou um `launchd` com `KeepAlive` no macOS. Sem isso,
 a disciplina de reabrir a janela é a única coisa entre a conta e mais uma semana
-de silêncio, e ela já falhou uma vez aqui.
+de silêncio, e ela já falhou uma vez aqui. No Windows, `schtasks /create` pode
+responder *Acesso negado* sem elevação; um atalho para o binário, com `serve`
+nos argumentos, dentro de `shell:startup`, faz o mesmo sem pedir nada.
+
+**Uma ponte por máquina.** Com o daemon subindo sozinho no logon, abrir uma
+janela e rodar `serve` vira o gesto natural — e dois clientes sobre o mesmo
+`sessao.db` corrompem o ratchet do Signal: as mensagens passam a chegar sem
+decifrar, e o console não diz nada. Então o segundo `serve` **recusa subir**
+enquanto houver batida de menos de 90 s, nomeando o processo que está de pé.
+Daemon que morreu de vez fica esses 90 s sem poder voltar, e a recusa diz isso.
 
 Na primeira execução, o `serve` mostra um QR — no terminal e também em
 `qr.png`, para quando o terminal não desenha os blocos. Escaneie em

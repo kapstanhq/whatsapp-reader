@@ -187,6 +187,31 @@ func baterSempre(ctx context.Context, b *Banco) {
 	}
 }
 
+/* UMA ponte por máquina, e a batida é quem decide.
+
+   O pid já era gravado, e o comentário acima já dizia o preço de dois `serve`
+   no ar — mas ninguém comparava, e subir o segundo era um comando. Com o
+   daemon no agendador do sistema (o degrau 4.5 da instalação) isso deixa de
+   ser descuido raro: quem reinicia a máquina tem um `serve` de pé sem janela
+   nenhuma aberta, e abrir uma e rodar o comando é o gesto natural.
+
+   A regra é a batida, não o pid: pid se recicla depois de um reboot, e um
+   número igual por acaso liberaria justamente o caso que isto barra. Quem
+   morreu de vez fica até 90 s sem poder voltar — é o preço, e a mensagem o
+   diz em vez de deixar a pessoa adivinhando. */
+
+func (b *Banco) OutroDaemon(ctx context.Context) error {
+	pid, em := b.LerEstado(ctx, "batida")
+	if em.IsZero() || time.Since(em) >= batidaTolerancia {
+		return nil
+	}
+	return fmt.Errorf("já há uma ponte de pé nesta máquina: o processo %s bateu há %s.\n"+
+		"Dois `serve` sobre a mesma sessão corrompem o ratchet do Signal, e as mensagens "+
+		"passam a chegar sem decifrar.\nUse a janela que já está aberta — `whatsapp-reader "+
+		"estado` diz o que ela está fazendo.\nSe aquele processo acabou de morrer, espere "+
+		"um minuto e rode de novo.", pid, humano(time.Since(em)))
+}
+
 /* O subcomando `estado`: o mesmo diagnóstico sem MCP e sem agente.
 
    Existe porque a cadeia de instalação precisa de um degrau que se CONFIRME

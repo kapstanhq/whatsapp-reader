@@ -4,7 +4,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e
 as versões, o [SemVer](https://semver.org/lang/pt-BR/). Até a v1, uma versão
 menor pode mudar a API dos pacotes.
 
-## [Não lançada] — será a 0.2.0
+## [0.2.0] — 2026-09-16
 
 ### Novo
 
@@ -31,6 +31,9 @@ menor pode mudar a API dos pacotes.
 - CI nos três sistemas, com detector de corrida, staticcheck, govulncheck e as
   regras de dependência entre os pacotes.
 - Binários prontos a cada versão marcada, pelo GoReleaser.
+- **Uma ponte por máquina:** o `serve` recusa subir enquanto outro daemon
+  estiver batendo, e nomeia o processo. Dois clientes sobre o mesmo `sessao.db`
+  corrompem o ratchet do Signal — o pid já ia na batida, faltava compará-lo.
 
 ### Corrigido
 
