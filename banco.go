@@ -49,7 +49,8 @@ func AbrirBanco(caminho string) (*Banco, error) {
 	}
 	// O daemon e o `ponte mcp` abrem o MESMO arquivo ao mesmo tempo. Sem WAL,
 	// a leitura do MCP trava a escrita do daemon e mensagem se perde.
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if err := ligarWAL(db); err != nil {
+		db.Close()
 		return nil, err
 	}
 	if _, err := db.Exec(esquema); err != nil {
@@ -59,6 +60,11 @@ func AbrirBanco(caminho string) (*Banco, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(esquemaEstado); err != nil {
+		return nil, err
+	}
+	// Depois do esquema de sempre, o que só migração consegue trazer. Ver esquema.go.
+	if _, err := migrar(context.Background(), db); err != nil {
+		db.Close()
 		return nil, err
 	}
 	return &Banco{db: db}, nil
@@ -140,6 +146,45 @@ type MensagemVista struct {
 	Conversa, Nome, Remetente, Texto, Midia string
 	DeMim                                   bool
 	Em                                      time.Time
+	Audio                                   AudioVisto
+}
+
+// O que a esteira sabe de um áudio. Estado vazio: a mensagem não tem linha em
+// midias — é de antes da migração, ou foi gravada por um daemon antigo.
+type AudioVisto struct {
+	Estado, Motivo           string // midias.estado e midias.erro
+	Segundos                 int
+	Transcricao, Texto, Erro string // transcricoes.estado, .texto e .erro
+}
+
+// Toda leitura de mensagem traz o áudio ao lado: sem a linha de midias e a de
+// transcricoes, uma nota de voz é só "[áudio]", e quem lê não sabe se ela ainda
+// vai virar texto ou se nunca vai.
+const selectMensagem = `
+	SELECT m.conversa, COALESCE(c.nome,''), COALESCE(m.remetente,''),
+	       COALESCE(m.texto,''), COALESCE(m.midia,''), m.de_mim, m.em,
+	       COALESCE(md.estado,''), COALESCE(md.erro,''), COALESCE(md.segundos,0),
+	       COALESCE(t.estado,''), COALESCE(t.texto,''), COALESCE(t.erro,'')
+	  FROM mensagens m
+	  LEFT JOIN conversas c    ON c.jid = m.conversa
+	  LEFT JOIN midias md      ON md.mensagem = m.id AND md.conversa = m.conversa AND md.tipo = 'audio'
+	  LEFT JOIN transcricoes t ON t.mensagem = m.id AND t.conversa = m.conversa`
+
+func lerMensagens(rows *sql.Rows) ([]MensagemVista, error) {
+	defer rows.Close()
+	var out []MensagemVista
+	for rows.Next() {
+		var m MensagemVista
+		var em int64
+		if err := rows.Scan(&m.Conversa, &m.Nome, &m.Remetente, &m.Texto, &m.Midia, &m.DeMim, &em,
+			&m.Audio.Estado, &m.Audio.Motivo, &m.Audio.Segundos,
+			&m.Audio.Transcricao, &m.Audio.Texto, &m.Audio.Erro); err != nil {
+			return nil, err
+		}
+		m.Em = time.Unix(em, 0)
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // A condição se monta com o que veio. A versão anterior tinha os quatro filtros
@@ -156,8 +201,10 @@ func (b *Banco) ListarMensagens(ctx context.Context, conversa, busca string,
 		args = append(args, conversa)
 	}
 	if busca != "" {
-		cond = append(cond, "m.texto LIKE ?")
-		args = append(args, "%"+busca+"%")
+		// A transcrição entra na busca: "calhas" dito num áudio é achado como se
+		// tivesse sido escrito.
+		cond = append(cond, "(m.texto LIKE ? OR t.texto LIKE ?)")
+		args = append(args, "%"+busca+"%", "%"+busca+"%")
 	}
 	if !depois.IsZero() {
 		cond = append(cond, "m.em >= ?")
@@ -169,44 +216,27 @@ func (b *Banco) ListarMensagens(ctx context.Context, conversa, busca string,
 	}
 	args = append(args, limite)
 
-	rows, err := b.db.QueryContext(ctx, `
-		SELECT m.conversa, COALESCE(c.nome,''), COALESCE(m.remetente,''),
-		       COALESCE(m.texto,''), COALESCE(m.midia,''), m.de_mim, m.em
-		  FROM mensagens m LEFT JOIN conversas c ON c.jid = m.conversa
+	rows, err := b.db.QueryContext(ctx, selectMensagem+`
 		 WHERE `+strings.Join(cond, " AND ")+`
 		 ORDER BY m.em DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []MensagemVista
-	for rows.Next() {
-		var m MensagemVista
-		var em int64
-		if err := rows.Scan(&m.Conversa, &m.Nome, &m.Remetente, &m.Texto,
-			&m.Midia, &m.DeMim, &em); err != nil {
-			return nil, err
-		}
-		m.Em = time.Unix(em, 0)
-		out = append(out, m)
-	}
-	return out, rows.Err()
+	return lerMensagens(rows)
 }
 
 // Quantos dias de silêncio, e de quem foi a última palavra. É o que a skill
-// de retomada precisa saber antes de escrever qualquer coisa.
-func (b *Banco) UltimaInteracao(ctx context.Context, conversa string) (
-	em time.Time, deMim bool, texto string, err error) {
-	var seg int64
-	err = b.db.QueryRowContext(ctx, `
-		SELECT em, de_mim, COALESCE(texto,'') FROM mensagens
-		 WHERE conversa = ? ORDER BY em DESC LIMIT 1`, conversa).
-		Scan(&seg, &deMim, &texto)
-	if err == sql.ErrNoRows {
-		return time.Time{}, false, "", nil
-	}
+// de retomada precisa saber antes de escrever qualquer coisa — e, quando a
+// última é uma nota de voz, o que foi dito nela. ok=false: conversa sem mensagem.
+func (b *Banco) UltimaInteracao(ctx context.Context, conversa string) (m MensagemVista, ok bool, err error) {
+	rows, err := b.db.QueryContext(ctx, selectMensagem+`
+		 WHERE m.conversa = ? ORDER BY m.em DESC LIMIT 1`, conversa)
 	if err != nil {
-		return time.Time{}, false, "", err
+		return MensagemVista{}, false, err
 	}
-	return time.Unix(seg, 0), deMim, texto, nil
+	ms, err := lerMensagens(rows)
+	if err != nil || len(ms) == 0 {
+		return MensagemVista{}, false, err
+	}
+	return ms[0], true, nil
 }

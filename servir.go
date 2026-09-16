@@ -33,44 +33,66 @@ func Servir(dir string) error {
 	}
 	defer banco.Fechar()
 
+	// Antes de tocar na sessão: se outro daemon está batendo, este não sobe.
+	// Ver saude.go.
+	if err := banco.OutroDaemon(ctx); err != nil {
+		return err
+	}
+
 	// "sqlite" é o nome que o modernc registra. O mattn registrava "sqlite3", e
 	// era ele que exigia CGO — e portanto um compilador C na máquina do corretor.
 	log := waLog.Stdout("ponte", "INFO", true)
-	store, err := sqlstore.New(ctx, "sqlite",
-		"file:"+filepath.Join(dir, "sessao.db")+"?_pragma=foreign_keys(1)",
-		waLog.Stdout("sessao", "ERROR", true))
+	store, err := sqlstore.New(ctx, "sqlite", dsnSessao(dir), waLog.Stdout("sessao", "ERROR", true))
 	if err != nil {
-		return fmt.Errorf("abrir sessão: %w", err)
+		return erroSessao(err)
 	}
+	// Fechar faz o checkpoint do WAL: sem isto o que ficou no -wal só volta ao
+	// arquivo principal na próxima abertura.
+	defer store.Close()
 	device, err := store.GetFirstDevice(ctx)
 	if err != nil {
 		return fmt.Errorf("device: %w", err)
 	}
 
 	cli := whatsmeow.NewClient(device, log)
+	// A chave de cada anexo é guardada no handler, sem rede; quem baixa é a
+	// esteira, fora dele. Ver midias.go e esteira.go.
+	g := &gravador{banco: banco, dias: diasDeMidia(os.Getenv), agora: time.Now}
+	// O motor sai do ambiente desta janela, e o que ele é vai para o banco: o
+	// `mcp` roda com outro ambiente. Ver motor.go.
+	mt := montarMotor(dir, os.Getenv)
+	banco.Anotar(ctx, "transcricao_motor", mt.descricao)
+	banco.Anotar(ctx, "transcricao_problema", mt.problema)
+	fmt.Println("· transcrição:", mt.descricao)
+	cfg := configEsteiraPadrao(g.dias)
+	cfg.motor, cfg.idioma = mt.motor, mt.idioma
+	cfg.guardarDias = diasDeGuarda(os.Getenv)
+	esteira, err := AbrirEsteira(ctx, dir, banco, cli, cfg)
+	if err != nil {
+		return err
+	}
+	defer esteira.Fechar()
+	g.acordar = esteira.Acordar
 	cli.AddEventHandler(func(bruto any) {
 		switch e := bruto.(type) {
 
 		case *events.Message:
-			gravarUma(ctx, banco, e.Info.ID, e.Info.Chat.String(),
-				e.Info.Sender.String(), e.Info.PushName, e.Info.IsFromMe,
-				e.Info.Timestamp, e.Message)
+			g.gravar(ctx, e.Info.Chat.String(), e, origemAoVivo)
+
+		case *events.MediaRetry:
+			// O celular respondeu ao pedido de link novo. Só banco aqui; baixar é da esteira.
+			esteira.RespostaDoCelular(ctx, e)
 
 		case *events.HistorySync:
 			n := 0
 			for _, conv := range e.Data.GetConversations() {
 				jid := conv.GetID()
 				for _, hm := range conv.GetMessages() {
-					wm := hm.GetMessage()
-					if wm == nil {
-						continue
+					if wm := hm.GetMessage(); wm != nil {
+						// O histórico vem embrulhado; o ao vivo, não. Ver historico.go.
+						g.gravar(ctx, jid, mensagemDoHistorico(cli, jid, wm), origemHistorico)
+						n++
 					}
-					k := wm.GetKey()
-					gravarUma(ctx, banco, k.GetID(), jid, k.GetParticipant(),
-						wm.GetPushName(), k.GetFromMe(),
-						time.Unix(int64(wm.GetMessageTimestamp()), 0),
-						wm.GetMessage())
-					n++
 				}
 			}
 			c, m := banco.Contagem(ctx)
@@ -94,6 +116,10 @@ func Servir(dir string) error {
 			// de teste usa como destinatário.
 			if cli.Store.ID != nil {
 				banco.Anotar(ctx, "numero", cli.Store.ID.User)
+			}
+			// O nome de quem usa a ponte entra na dica de cada áudio. Ver vocabulario.go.
+			if cli.Store.PushName != "" {
+				banco.Anotar(ctx, "nome", cli.Store.PushName)
 			}
 			anotarConexao(ctx, banco, true, "")
 			fmt.Println("· conectado")
@@ -200,6 +226,9 @@ func Servir(dir string) error {
 	signal.Notify(parar, os.Interrupt, syscall.SIGTERM)
 	<-parar
 	pararBatida()
+	// Primeiro a esteira: ela devolve à fila o que estava baixando enquanto a
+	// conexão ainda está de pé.
+	esteira.Fechar()
 	// Saída limpa se declara: sem isto, um Ctrl+C ficaria noventa segundos
 	// indistinguível de uma queda, e o diagnóstico diria "fora do ar" sobre
 	// algo que a pessoa acabou de fechar de propósito.

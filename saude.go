@@ -67,6 +67,10 @@ type Saude struct {
 	UltimaMsg time.Time // a mensagem mais nova que existe no banco
 	Conversas int
 	Mensagens int
+	Audios    ResumoAudios // o que a esteira de mídia tem, e o que falta
+	// O motor de transcrição e o que o impede, como o daemon anotou: o `mcp`
+	// não enxerga o ambiente da janela do `serve`.
+	Transcricao, TranscricaoProblema string
 }
 
 func (b *Banco) Saude(ctx context.Context) Saude {
@@ -81,6 +85,9 @@ func (b *Banco) Saude(ctx context.Context) Saude {
 	if ms, err := b.ListarMensagens(ctx, "", "", time.Time{}, time.Time{}, 1); err == nil && len(ms) > 0 {
 		s.UltimaMsg = ms[0].Em
 	}
+	s.Audios = b.ResumoAudios(ctx)
+	s.Transcricao, _ = b.LerEstado(ctx, "transcricao_motor")
+	s.TranscricaoProblema, _ = b.LerEstado(ctx, "transcricao_problema")
 	return s
 }
 
@@ -123,8 +130,30 @@ func (s Saude) Descrever() string {
 			periodo += fmt.Sprintf(" — há %s", humano(d))
 		}
 	}
-	return fmt.Sprintf("%s\n\n%d conversas, %d mensagens · %s",
+	out := fmt.Sprintf("%s\n\n%d conversas, %d mensagens · %s",
 		cabeca, s.Conversas, s.Mensagens, periodo)
+	// A linha dos áudios só aparece quando há áudio: numa ponte antiga ou recém
+	// pareada ela seria um zero que ninguém pediu.
+	if s.Audios.Total > 0 {
+		out += "\n" + s.Audios.Linha()
+		if l := s.linhaTranscricao(); l != "" {
+			out += "\n" + l
+		}
+	}
+	return out
+}
+
+// O problema vem antes do motor: "whisper.cpp local" com a fila parada é a
+// informação errada no lugar de destaque.
+func (s Saude) linhaTranscricao() string {
+	switch {
+	case s.TranscricaoProblema != "":
+		return "transcrição: PARADA — " + s.TranscricaoProblema +
+			". Rode `whatsapp-reader verificar` na máquina da ponte"
+	case s.Transcricao != "":
+		return "transcrição: " + s.Transcricao
+	}
+	return "" // daemon de antes da transcrição, que não anotava o motor
 }
 
 func humano(d time.Duration) string {
@@ -156,6 +185,33 @@ func baterSempre(ctx context.Context, b *Banco) {
 			b.Anotar(ctx, "batida", pid)
 		}
 	}
+}
+
+/* UMA ponte por máquina, e a batida é quem decide.
+
+   O pid já era gravado, e o comentário acima já dizia o preço de dois `serve`
+   no ar — mas ninguém comparava, e subir o segundo era um comando. Com o
+   daemon no agendador do sistema (o degrau 4.5 da instalação) isso deixa de
+   ser descuido raro: quem reinicia a máquina tem um `serve` de pé sem janela
+   nenhuma aberta, e abrir uma e rodar o comando é o gesto natural.
+
+   A regra é a batida, não o pid: pid se recicla depois de um reboot, e um
+   número igual por acaso liberaria justamente o caso que isto barra. Quem
+   morreu de vez fica até 90 s sem poder voltar — é o preço, e a mensagem o
+   diz em vez de deixar a pessoa adivinhando. */
+
+func (b *Banco) OutroDaemon(ctx context.Context) error {
+	pid, em := b.LerEstado(ctx, "batida")
+	if em.IsZero() || time.Since(em) >= batidaTolerancia {
+		return nil
+	}
+	return fmt.Errorf("já há uma ponte de pé nesta máquina: o processo %s bateu há %s.\n"+
+		"Dois `serve` sobre a mesma sessão corrompem o ratchet do Signal, e as mensagens "+
+		"passam a chegar sem decifrar.\nUse a janela que já está aberta — `whatsapp-reader "+
+		// Sem ponto no fim: o staticcheck (ST1005) recusa, e a mensagem sai
+		// depois de um "erro: " que o main escreve.
+		"estado` diz o que ela está fazendo.\nSe aquele processo acabou de morrer, espere "+
+		"um minuto e rode de novo", pid, humano(time.Since(em)))
 }
 
 /* O subcomando `estado`: o mesmo diagnóstico sem MCP e sem agente.

@@ -91,7 +91,7 @@ func despachar(ctx context.Context, b *Banco, dir string, r reqRPC) (any, *errRP
 		return map[string]any{
 			"protocolVersion": versao,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "whatsapp-reader", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "whatsapp-reader", "version": versaoAtual()},
 		}, nil
 
 	case "ping":
@@ -160,10 +160,13 @@ func catalogo() []map[string]any {
 			}, nil),
 
 		tool("listar_mensagens",
-			"Lê mensagens. Filtre por conversa, por período ou por texto. Sem filtro, traz as mais recentes de todas.",
+			"Lê mensagens. Filtre por conversa, por período ou por texto. Sem filtro, traz as mais recentes de todas. "+
+				"Áudio de conversa individual vem transcrito, marcado [áudio 0:42 · transcrição]: é transcrição de "+
+				"máquina e pode errar nomes, números e valores — confirme com o corretor antes de agir sobre eles. "+
+				"Áudio sem transcrição diz o porquê no rótulo (na fila, não baixado, expirou).",
 			map[string]any{
 				"conversa": str("o jid da conversa, como veio de listar_conversas"),
-				"busca":    str("texto a procurar dentro das mensagens"),
+				"busca":    str("texto a procurar nas mensagens e nas transcrições dos áudios"),
 				"depois":   str("data mínima, AAAA-MM-DD ou ISO-8601"),
 				"antes":    str("data máxima, AAAA-MM-DD ou ISO-8601"),
 				"limite":   num("quantas mensagens (padrão 50)"),
@@ -201,7 +204,7 @@ func catalogo() []map[string]any {
 
 		tool("estado_da_ponte",
 			"A SAÚDE da ponte e o que ela tem guardado: se o daemon está de pé, se está conectado, "+
-				"há quanto tempo o histórico parou de crescer, e o número desta conta. "+
+				"há quanto tempo o histórico parou de crescer, como andam os áudios e a transcrição, e o número desta conta. "+
 				"Chame ANTES de ler conversa e antes de afirmar que algo não existe — "+
 				"histórico congelado responde igual a histórico vazio.",
 			map[string]any{}, nil),
@@ -266,6 +269,7 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 			return "nenhuma mensagem com esses filtros.", nil
 		}
 		var s strings.Builder
+		parada := b.transcricaoParada(ctx)
 		// do mais antigo para o mais novo: é a ordem em que se lê uma conversa
 		for i := len(ms) - 1; i >= 0; i-- {
 			m := ms[i]
@@ -275,29 +279,27 @@ func executar(ctx context.Context, b *Banco, dir, nome string, args json.RawMess
 			} else if quem == "" {
 				quem = m.Conversa
 			}
-			linha := m.Texto
-			if m.Midia != "" {
-				linha = "[" + m.Midia + "] " + linha
-			}
-			fmt.Fprintf(&s, "[%s] %s: %s\n", m.Em.Format("2006-01-02 15:04"), quem, linha)
+			fmt.Fprintf(&s, "[%s] %s: %s\n", m.Em.Format("2006-01-02 15:04"), quem, linhaDaMensagem(m, parada))
 		}
 		return s.String(), nil
 
 	case "ultima_interacao":
-		em, deMim, texto, err := b.UltimaInteracao(ctx, a.Conversa)
+		m, ok, err := b.UltimaInteracao(ctx, a.Conversa)
 		if err != nil {
 			return "", err
 		}
-		if em.IsZero() {
+		if !ok {
 			return "nenhuma mensagem nessa conversa.", nil
 		}
 		ultima := "a última palavra foi do cliente"
-		if deMim {
+		if m.DeMim {
 			ultima = "a última palavra foi sua"
 		}
-		dias := int(time.Since(em).Hours() / 24)
+		dias := int(time.Since(m.Em).Hours() / 24)
+		// Se a última foi uma nota de voz, o texto dela é a transcrição — ou o
+		// motivo de ainda não haver uma.
 		return fmt.Sprintf("última em %s · há %d dias · %s\ntexto: %s",
-			em.Format("2006-01-02 15:04"), dias, ultima, texto), nil
+			m.Em.Format("2006-01-02 15:04"), dias, ultima, linhaDaMensagem(m, b.transcricaoParada(ctx))), nil
 
 	case "preparar_envio":
 		elo, err := eloVivo(ctx, b, dir)
